@@ -1,8 +1,7 @@
 import type { LayoutServerLoad } from './$types';
 import { listImapMailboxes, startMailboxSync } from '$lib/server/mail';
 
-export const load: LayoutServerLoad = async () => {
+export const load: LayoutServerLoad = () => {
 	startMailboxSync();
-	const imapMailboxes = await listImapMailboxes();
-	return { imapMailboxes };
+	return { imapMailboxes: listImapMailboxes() };
 };

@@ -31,8 +31,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
 	const mailboxSlug = url.searchParams.get('mailbox') ?? 'inbox';
 
-	const imapMailboxes = await listImapMailboxes();
-	const mailboxPath = slugToPath(mailboxSlug, imapMailboxes);
+	const mailboxPath = slugToPath(mailboxSlug, listImapMailboxes());
 
 	const messages = await listStoredMessages(mailboxPath, limit + 1, offset);
 	const hasMore = messages.length > limit;

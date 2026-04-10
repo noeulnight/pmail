@@ -201,7 +201,7 @@ async function storeMessage(
 }
 
 async function syncOneMailbox(
-	client: ImapFlow,
+	config: MailConfig,
 	mailboxPath: string,
 	pollMs: number
 ): Promise<void> {
@@ -210,12 +210,21 @@ async function syncOneMailbox(
 
 	if (lastSyncedAt && Date.now() - lastSyncedAt < pollMs) return;
 
+	const client = new ImapFlow({
+		host: config.host,
+		port: config.port,
+		secure: config.secure,
+		auth: { user: config.user, pass: config.password },
+		logger: false
+	});
+
 	const historyComplete = state?.historyComplete ?? false;
 	let nextLastUid = state?.lastUid ?? 0;
 	let fetchedCount = 0;
 	let storedCount = 0;
 
 	try {
+		await client.connect();
 		const lock = await client.getMailboxLock(mailboxPath);
 		try {
 			const needsInitialBackfill = !historyComplete && nextLastUid === 0;
@@ -264,11 +273,14 @@ async function syncOneMailbox(
 			lastSyncedAt: new Date(),
 			lastError: getErrorMessage(error)
 		});
+	} finally {
+		try { await client.logout(); } catch { /* ignore */ }
 	}
 }
 
 async function runSyncAll(config: MailConfig): Promise<void> {
-	const client = new ImapFlow({
+	// Use a single connection just to list mailboxes
+	const listClient = new ImapFlow({
 		host: config.host,
 		port: config.port,
 		secure: config.secure,
@@ -277,28 +289,27 @@ async function runSyncAll(config: MailConfig): Promise<void> {
 	});
 
 	const pollMs = config.pollSeconds * 1000;
+	let listed: Awaited<ReturnType<typeof listClient.list>>;
 
 	try {
-		await client.connect();
-		const listed = await client.list();
-
-		// Update mailbox cache while we have the connection open
+		await listClient.connect();
+		listed = await listClient.list();
 		cachedMailboxes = listed.map((mb) => ({
 			path: mb.path,
 			name: mb.name,
 			delimiter: mb.delimiter ?? '/'
 		}));
-		mailboxCacheExpiry = Date.now() + MAILBOX_CACHE_MS;
-
-		for (const mb of listed) {
-			await syncOneMailbox(client, mb.path, pollMs);
-		}
 	} finally {
-		try { await client.logout(); } catch { /* ignore */ }
+		try { await listClient.logout(); } catch { /* ignore */ }
 	}
+
+	// Sync all mailboxes in parallel, each with its own connection
+	await Promise.all(listed.map((mb) => syncOneMailbox(config, mb.path, pollMs)));
 }
 
 export function startMailboxSync() {
+	startMailboxCacheRefresh();
+
 	const config = getConfig();
 	if ('missing' in config) return;
 
@@ -372,16 +383,12 @@ export type ImapMailbox = {
 };
 
 let cachedMailboxes: ImapMailbox[] | null = null;
-let mailboxCacheExpiry = 0;
-const MAILBOX_CACHE_MS = 5 * 60 * 1000;
+const MAILBOX_REFRESH_MS = 10 * 60 * 1000;
+let mailboxRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
-export async function listImapMailboxes(): Promise<ImapMailbox[]> {
-	if (cachedMailboxes && Date.now() < mailboxCacheExpiry) {
-		return cachedMailboxes;
-	}
-
+async function refreshMailboxCache(): Promise<void> {
 	const config = getConfig();
-	if ('missing' in config) return [];
+	if ('missing' in config) return;
 
 	const client = new ImapFlow({
 		host: config.host,
@@ -401,12 +408,19 @@ export async function listImapMailboxes(): Promise<ImapMailbox[]> {
 			name: mb.name,
 			delimiter: mb.delimiter ?? '/'
 		}));
-		mailboxCacheExpiry = Date.now() + MAILBOX_CACHE_MS;
-
-		return cachedMailboxes;
 	} catch {
-		return cachedMailboxes ?? [];
+		// keep existing cache on failure
 	}
+}
+
+function startMailboxCacheRefresh() {
+	if (mailboxRefreshTimer) return;
+	void refreshMailboxCache();
+	mailboxRefreshTimer = setInterval(() => { void refreshMailboxCache(); }, MAILBOX_REFRESH_MS);
+}
+
+export function listImapMailboxes(): ImapMailbox[] {
+	return cachedMailboxes ?? [];
 }
 
 export async function listStoredMessages(mailboxPath: string, limit = 100, offset = 0) {
@@ -429,17 +443,9 @@ export async function getStoredMessageById(id: string) {
 	return message ?? null;
 }
 
-export async function markMessageAsRead(id: string) {
+export async function markMessageAsRead(message: MailRow) {
 	const config = getConfig();
 	if ('missing' in config) return;
-
-	const [message] = await db
-		.select()
-		.from(mailMessage)
-		.where(eq(mailMessage.id, id))
-		.limit(1);
-
-	if (!message) return;
 
 	const flags: string[] = JSON.parse(message.flags);
 	if (flags.includes('\\Seen')) return;
@@ -447,7 +453,7 @@ export async function markMessageAsRead(id: string) {
 	await db
 		.update(mailMessage)
 		.set({ flags: JSON.stringify([...flags, '\\Seen']) })
-		.where(eq(mailMessage.id, id));
+		.where(eq(mailMessage.id, message.id));
 
 	enqueueMarkRead(message.uid, message.mailbox);
 }

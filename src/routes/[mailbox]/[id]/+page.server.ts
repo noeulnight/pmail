@@ -24,7 +24,7 @@ export const load: PageServerLoad = async ({ params }) => {
 		error(404, 'Message not found');
 	}
 
-	void markMessageAsRead(params.id);
+	void markMessageAsRead(message);
 
 	return { message: serializeMessage(message) };
 };
