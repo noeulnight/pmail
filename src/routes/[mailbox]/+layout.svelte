@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { pathToSlug } from '$lib/mailbox';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
@@ -27,12 +28,19 @@
 		receivedAt: string | null;
 	};
 
+	type ImapMailbox = {
+		path: string;
+		name: string;
+		delimiter: string;
+	};
+
 	type Props = {
 		data: {
 			sync: SyncData;
 			messages: Message[];
 			hasMore: boolean;
 			pageSize: number;
+			imapMailboxes: ImapMailbox[];
 		};
 		children: import('svelte').Snippet;
 	};
@@ -62,45 +70,16 @@
 
 	const relativeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 
-	const unsyncedFolders = new Set(['drafts', 'sent', 'junk', 'trash', 'archive']);
-
 	const folderDisplayName = $derived.by(() => {
-		const names: Record<string, string> = {
-			inbox: 'Inbox',
-			drafts: 'Drafts',
-			sent: 'Sent',
-			junk: 'Junk',
-			trash: 'Trash',
-			archive: 'Archive',
-			unread: 'Unread',
-			flagged: 'Flagged',
-			'all-mail': 'All Mail'
-		};
-		return names[mailbox] ?? mailbox;
+		const match = data.imapMailboxes.find((mb) => pathToSlug(mb.path) === mailbox);
+		return match?.name ?? mailbox;
 	});
-
-	const primaryMailboxes = $derived([
-		{ label: 'Inbox', slug: 'inbox', count: messages.length },
-		{ label: 'Drafts', slug: 'drafts', count: 0 },
-		{ label: 'Sent', slug: 'sent', count: 0 },
-		{ label: 'Junk', slug: 'junk', count: 0 },
-		{ label: 'Trash', slug: 'trash', count: 0 },
-		{ label: 'Archive', slug: 'archive', count: 0 }
-	]);
 
 	const visibleMessages = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
 
 		return messages.filter((message) => {
-			if (unsyncedFolders.has(mailbox)) return false;
-			if (mailbox === 'unread' && !isUnread(message.flags)) return false;
-			if (mailbox === 'flagged' && !message.flags.includes('\\Flagged')) return false;
-			if (
-				(mailbox === 'inbox' || mailbox === 'all-mail') &&
-				activeFilter === 'unread' &&
-				!isUnread(message.flags)
-			)
-				return false;
+			if (activeFilter === 'unread' && !isUnread(message.flags)) return false;
 
 			if (!query) return true;
 
@@ -174,7 +153,7 @@
 		const requestId = ++syncRequestId;
 
 		try {
-			const response = await fetch(`/api/messages?offset=0&limit=${targetCount}`);
+			const response = await fetch(`/api/messages?offset=0&limit=${targetCount}&mailbox=${mailbox}`);
 			if (!response.ok) throw new Error('Failed to refresh loaded messages.');
 
 			const payload = (await response.json()) as { messages: Message[]; hasMore: boolean };
@@ -201,7 +180,7 @@
 		loadMoreError = null;
 
 		try {
-			const response = await fetch(`/api/messages?offset=${messages.length}&limit=${pageSize}`);
+			const response = await fetch(`/api/messages?offset=${messages.length}&limit=${pageSize}&mailbox=${mailbox}`);
 			if (!response.ok) throw new Error('Failed to load more messages.');
 
 			const payload = (await response.json()) as { messages: Message[]; hasMore: boolean };
@@ -217,6 +196,11 @@
 	}
 
 	function selectMessage(message: Message) {
+		if (!message.flags.includes('\\Seen')) {
+			messages = messages.map((m) =>
+				m.id === message.id ? { ...m, flags: [...m.flags, '\\Seen'] } : m
+			);
+		}
 		goto(`/${mailbox}/${message.id}`);
 	}
 
@@ -263,28 +247,21 @@
 		}
 	}
 
-	let sidebarWidth = $state(readStorage('mail:sidebarWidth', 260));
 	let listWidth = $state(readStorage('mail:listWidth', 440));
 	let resizing = $state(false);
 
-	function startResize(e: PointerEvent, col: 'sidebar' | 'list') {
+	function startResize(e: PointerEvent) {
 		e.preventDefault();
 		resizing = true;
 		const startX = e.clientX;
-		const startWidth = col === 'sidebar' ? sidebarWidth : listWidth;
+		const startWidth = listWidth;
 
 		function onMove(ev: PointerEvent) {
-			const next = startWidth + (ev.clientX - startX);
-			if (col === 'sidebar') {
-				sidebarWidth = Math.max(150, Math.min(400, next));
-			} else {
-				listWidth = Math.max(240, Math.min(700, next));
-			}
+			listWidth = Math.max(240, Math.min(700, startWidth + (ev.clientX - startX)));
 		}
 
 		function onUp() {
 			resizing = false;
-			localStorage.setItem('mail:sidebarWidth', String(sidebarWidth));
 			localStorage.setItem('mail:listWidth', String(listWidth));
 			window.removeEventListener('pointermove', onMove);
 			window.removeEventListener('pointerup', onUp);
@@ -299,172 +276,131 @@
 	<title>{folderDisplayName}</title>
 </svelte:head>
 
-<div class="h-screen overflow-hidden text-zinc-100" class:cursor-col-resize={resizing} class:select-none={resizing}>
-	<div class="flex h-full bg-[#0d0d10]">
-		<aside style="width: {sidebarWidth}px; min-width: {sidebarWidth}px" class="bg-[#0a0a0d]">
-			<div class="grid gap-6 p-3 sm:p-4">
-				<nav class="space-y-1.5">
-					{#each primaryMailboxes as mb (mb.slug)}
-						<a
-							href="/{mb.slug}"
-							class={[
-								'flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm transition',
-								mailbox === mb.slug
-									? 'bg-white/[0.08] font-medium text-white'
-									: 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
-							]}
-						>
-							<span>{mb.label}</span>
-							<span class="text-xs text-zinc-500">{mb.count}</span>
-						</a>
-					{/each}
-				</nav>
-			</div>
-		</aside>
-
-		<!-- Resize handle: sidebar ↔ list -->
-		<div
-			role="separator"
-			aria-orientation="vertical"
-			tabindex="-1"
-			class="group relative z-10 w-2 shrink-0 cursor-col-resize"
-			onpointerdown={(e) => startResize(e, 'sidebar')}
-		>
-			<div class="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/8 transition-colors group-hover:bg-white/25"></div>
-		</div>
-
-		<section style="width: {listWidth}px; min-width: {listWidth}px" class="flex flex-col overflow-x-hidden">
-			<div class="border-b border-white/8 p-4 sm:p-5">
-				<div class="flex items-center justify-between gap-3">
-					<h1 class="text-2xl font-semibold tracking-tight text-white">{folderDisplayName}</h1>
-					<div class="rounded-xl border border-white/8 bg-white/[0.03] p-1 text-sm">
-						<button
-							type="button"
-							class={[
-								'rounded-lg px-3 py-1.5 transition',
-								activeFilter === 'all' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
-							]}
-							onclick={() => (activeFilter = 'all')}
-						>
-							All mail
-						</button>
-						<button
-							type="button"
-							class={[
-								'rounded-lg px-3 py-1.5 transition',
-								activeFilter === 'unread' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
-							]}
-							onclick={() => (activeFilter = 'unread')}
-						>
-							Unread
-						</button>
-					</div>
-				</div>
-
-				<label class="mt-4 block">
-					<span class="sr-only">Search messages</span>
-					<input
-						bind:value={searchQuery}
-						type="search"
-						placeholder="Search"
-						class="w-full rounded-xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-sky-400/60"
-					/>
-				</label>
-			</div>
-
-			<div class="flex-1 overflow-y-auto">
-				{#each visibleMessages as message (message.id)}
+<div class="flex h-full" class:cursor-col-resize={resizing} class:select-none={resizing}>
+	<section style="width: {listWidth}px; min-width: {listWidth}px" class="flex flex-col overflow-x-hidden border-r border-white/8 bg-[#0d0d10]">
+		<div class="border-b border-white/8 p-4 sm:p-5">
+			<div class="flex items-center justify-between gap-3">
+				<h1 class="text-2xl font-semibold tracking-tight text-white">{folderDisplayName}</h1>
+				<div class="rounded-xl border border-white/8 bg-white/[0.03] p-1 text-sm">
 					<button
 						type="button"
 						class={[
-							'block w-full border-b border-white/8 px-4 py-4 text-left transition sm:px-5',
-							selectedMessageId === message.id ? 'bg-white/[0.06]' : 'hover:bg-white/[0.03]'
+							'rounded-lg px-3 py-1.5 transition',
+							activeFilter === 'all' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
 						]}
-						onclick={() => selectMessage(message)}
+						onclick={() => (activeFilter = 'all')}
 					>
-						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2">
-									<p
-										class={[
-											'truncate text-sm',
-											isUnread(message.flags) ? 'font-semibold text-white' : 'text-zinc-300'
-										]}
-									>
-										{senderName(message.from)}
-									</p>
-									{#if isUnread(message.flags)}
-										<span class="h-2 w-2 rounded-full bg-sky-400"></span>
-									{/if}
-								</div>
+						All mail
+					</button>
+					<button
+						type="button"
+						class={[
+							'rounded-lg px-3 py-1.5 transition',
+							activeFilter === 'unread' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
+						]}
+						onclick={() => (activeFilter = 'unread')}
+					>
+						Unread
+					</button>
+				</div>
+			</div>
 
-								<p class="mt-1 truncate text-sm font-medium text-zinc-200">
-									{subjectLabel(message.subject)}
+			<label class="mt-4 block">
+				<span class="sr-only">Search messages</span>
+				<input
+					bind:value={searchQuery}
+					type="search"
+					placeholder="Search"
+					class="w-full rounded-xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-sky-400/60"
+				/>
+			</label>
+		</div>
+
+		<div class="flex-1 overflow-y-auto">
+			{#each visibleMessages as message (message.id)}
+				<button
+					type="button"
+					class={[
+						'block w-full border-b border-white/8 px-4 py-4 text-left transition sm:px-5',
+						selectedMessageId === message.id ? 'bg-white/[0.06]' : 'hover:bg-white/[0.03]'
+					]}
+					onclick={() => selectMessage(message)}
+				>
+					<div class="flex items-start justify-between gap-3">
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center gap-2">
+								<p
+									class={[
+										'truncate text-sm',
+										isUnread(message.flags) ? 'font-semibold text-white' : 'text-zinc-300'
+									]}
+								>
+									{senderName(message.from)}
 								</p>
+								{#if isUnread(message.flags)}
+									<span class="h-2 w-2 rounded-full bg-sky-400"></span>
+								{/if}
 							</div>
 
-							<p class="shrink-0 text-xs text-zinc-500">
-								{formatRelativeTime(message.receivedAt)}
+							<p class="mt-1 truncate text-sm font-medium text-zinc-200">
+								{subjectLabel(message.subject)}
 							</p>
 						</div>
 
-						<p class="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">
-							{previewLabel(message.preview, message.textContent)}
-						</p>
-
-					</button>
-				{:else}
-					<div class="p-8 text-center">
-						<p class="text-lg font-semibold text-white">
-							{unsyncedFolders.has(mailbox) ? 'Not synced yet' : 'No messages found'}
-						</p>
-						<p class="mt-2 text-sm text-zinc-500">
-							{unsyncedFolders.has(mailbox)
-								? `${folderDisplayName} syncing is not set up yet.`
-								: 'Try a different search or wait for the next sync.'}
+						<p class="shrink-0 text-xs text-zinc-500">
+							{formatRelativeTime(message.receivedAt)}
 						</p>
 					</div>
-				{/each}
 
-				{#if visibleMessages.length > 0 && !unsyncedFolders.has(mailbox)}
-					<div class="px-4 py-5 sm:px-5">
-						{#if loadMoreError}
-							<p class="text-sm text-rose-300">{loadMoreError}</p>
-						{/if}
+					<p class="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">
+						{previewLabel(message.preview, message.textContent)}
+					</p>
+				</button>
+			{:else}
+				<div class="p-8 text-center">
+					<p class="text-lg font-semibold text-white">No messages found</p>
+					<p class="mt-2 text-sm text-zinc-500">Try a different search or wait for the next sync.</p>
+				</div>
+			{/each}
 
-						{#if hasMore}
-							<div bind:this={sentinel} class="h-1 w-full"></div>
-							<div class="flex justify-center">
-								<button
-									type="button"
-									class="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
-									onclick={() => void loadMoreMessages()}
-									disabled={isLoadingMore}
-								>
-									{isLoadingMore ? 'Loading...' : 'Load more'}
-								</button>
-							</div>
-						{:else}
-							<p class="text-center text-sm text-zinc-500">All stored messages are loaded.</p>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</section>
+			{#if visibleMessages.length > 0}
+				<div class="px-4 py-5 sm:px-5">
+					{#if loadMoreError}
+						<p class="text-sm text-rose-300">{loadMoreError}</p>
+					{/if}
 
-		<!-- Resize handle: list ↔ detail -->
-		<div
-			role="separator"
-			aria-orientation="vertical"
-			tabindex="-1"
-			class="group relative z-10 w-2 shrink-0 cursor-col-resize"
-			onpointerdown={(e) => startResize(e, 'list')}
-		>
-			<div class="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/8 transition-colors group-hover:bg-white/25"></div>
+					{#if hasMore}
+						<div bind:this={sentinel} class="h-1 w-full"></div>
+						<div class="flex justify-center">
+							<button
+								type="button"
+								class="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+								onclick={() => void loadMoreMessages()}
+								disabled={isLoadingMore}
+							>
+								{isLoadingMore ? 'Loading...' : 'Load more'}
+							</button>
+						</div>
+					{:else}
+						<p class="text-center text-sm text-zinc-500">All stored messages are loaded.</p>
+					{/if}
+				</div>
+			{/if}
 		</div>
+	</section>
 
-		<section class="min-w-0 flex-1 overflow-hidden bg-[#0b0b0e]">
-			{@render children()}
-		</section>
+	<!-- Resize handle: list ↔ detail -->
+	<div
+		role="separator"
+		aria-orientation="vertical"
+		tabindex="-1"
+		class="group relative z-10 w-2 shrink-0 cursor-col-resize"
+		onpointerdown={startResize}
+	>
+		<div class="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/8 transition-colors group-hover:bg-white/25"></div>
 	</div>
+
+	<section class="min-w-0 flex-1 overflow-hidden bg-[#0b0b0e]">
+		{@render children()}
+	</section>
 </div>

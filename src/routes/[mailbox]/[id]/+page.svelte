@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Archive, Trash2, Clock } from 'lucide-svelte';
+	import { Archive, Trash2, ShieldAlert, Reply, ReplyAll, Forward } from 'lucide-svelte';
 
 	type Message = {
 		id: string;
@@ -59,6 +59,21 @@
 		return msg.textContent || msg.preview || 'No message body available.';
 	}
 
+	const SCROLLBAR_STYLE = `<style>
+*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,0.18) transparent}
+*::-webkit-scrollbar{width:6px;height:6px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.18);border-radius:999px}
+*::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,0.32)}
+</style>`;
+
+	function injectScrollbarStyle(html: string): string {
+		const headClose = html.indexOf('</head>');
+		if (headClose !== -1) return html.slice(0, headClose) + SCROLLBAR_STYLE + html.slice(headClose);
+		return SCROLLBAR_STYLE + html;
+	}
+
+	const srcdoc = $derived(message.htmlContent ? injectScrollbarStyle(message.htmlContent) : null);
 </script>
 
 <svelte:head>
@@ -77,7 +92,7 @@
 					>
 						<Archive size={16} />
 					</button>
-					<span class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
 						Archive
 					</span>
 				</div>
@@ -89,20 +104,59 @@
 					>
 						<Trash2 size={16} />
 					</button>
-					<span class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
 						Delete
+					</span>
+				</div>
+	<div class="group relative">
+					<button
+						type="button"
+						aria-label="Move to spam"
+						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400"
+					>
+						<ShieldAlert size={16} />
+					</button>
+					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+						Move to spam
+					</span>
+				</div>
+			</div>
+
+			<div class="flex flex-wrap items-center gap-1">
+				<div class="group relative">
+					<button
+						type="button"
+						aria-label="Reply"
+						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
+					>
+						<Reply size={16} />
+					</button>
+					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+						Reply
 					</span>
 				</div>
 				<div class="group relative">
 					<button
 						type="button"
-						aria-label="Remind me later"
+						aria-label="Reply all"
 						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
 					>
-						<Clock size={16} />
+						<ReplyAll size={16} />
 					</button>
-					<span class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
-						Remind me later
+					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+						Reply all
+					</span>
+				</div>
+				<div class="group relative">
+					<button
+						type="button"
+						aria-label="Forward"
+						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
+					>
+						<Forward size={16} />
+					</button>
+					<span class="pointer-events-none absolute top-full right-0 mt-2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+						Forward
 					</span>
 				</div>
 			</div>
@@ -138,11 +192,11 @@
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
-			{#if message.htmlContent}
+			{#if srcdoc}
 				<iframe
 					title={`Email body for ${subjectLabel(message.subject)}`}
 					sandbox=""
-					srcdoc={message.htmlContent}
+					{srcdoc}
 					class="block h-full w-full bg-white"
 				></iframe>
 			{:else}

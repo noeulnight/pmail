@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getStoredMessageById } from '$lib/server/mail';
+import { getStoredMessageById, markMessageAsRead } from '$lib/server/mail';
 
 function serializeMessage(message: NonNullable<Awaited<ReturnType<typeof getStoredMessageById>>>) {
 	return {
@@ -23,6 +23,8 @@ export const load: PageServerLoad = async ({ params }) => {
 	if (!message) {
 		error(404, 'Message not found');
 	}
+
+	void markMessageAsRead(params.id);
 
 	return { message: serializeMessage(message) };
 };

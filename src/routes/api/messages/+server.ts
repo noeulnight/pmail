@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { listStoredMessages } from '$lib/server/mail';
+import { listImapMailboxes, listStoredMessages } from '$lib/server/mail';
+import { slugToPath } from '$lib/mailbox';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -28,7 +29,12 @@ export const GET: RequestHandler = async ({ url }) => {
 	const offset = parsePositiveInt(url.searchParams.get('offset'), 0);
 	const requestedLimit = parsePositiveInt(url.searchParams.get('limit'), DEFAULT_LIMIT);
 	const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
-	const messages = await listStoredMessages(limit + 1, offset);
+	const mailboxSlug = url.searchParams.get('mailbox') ?? 'inbox';
+
+	const imapMailboxes = await listImapMailboxes();
+	const mailboxPath = slugToPath(mailboxSlug, imapMailboxes);
+
+	const messages = await listStoredMessages(mailboxPath, limit + 1, offset);
 	const hasMore = messages.length > limit;
 
 	return json({

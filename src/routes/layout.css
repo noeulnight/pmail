@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 
+button, a {
+	cursor: pointer;
+}
+
 * {
 	scrollbar-width: thin;
 	scrollbar-color: rgba(255, 255, 255, 0.12) transparent;

@@ -1,9 +1,10 @@
 import { env } from '$env/dynamic/private';
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { db } from '$lib/server/db';
 import { mailboxSync, mailMessage } from '$lib/server/db/schema';
+import { enqueueMarkRead, registerImapConfig } from '$lib/server/imap-queue';
 
 type MailConfig = {
 	host: string;
@@ -11,7 +12,6 @@ type MailConfig = {
 	secure: boolean;
 	user: string;
 	password: string;
-	mailbox: string;
 	pollSeconds: number;
 };
 
@@ -29,7 +29,13 @@ export type SyncResult = {
 	reason?: string;
 };
 
-let activeSync: Promise<SyncResult> | null = null;
+let activeSync: Promise<void> | null = null;
+
+registerImapConfig(() => {
+	const config = getConfig();
+	if ('missing' in config) return null;
+	return { host: config.host, port: config.port, secure: config.secure, user: config.user, password: config.password };
+});
 
 function parseBoolean(value: string | undefined, fallback: boolean) {
 	if (value == null || value === '') return fallback;
@@ -41,8 +47,7 @@ function parseNumber(value: string | undefined, fallback: number) {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getConfig(): MailConfig | { missing: string[]; mailbox: string } {
-	const mailbox = env.IMAP_MAILBOX || 'INBOX';
+function getConfig(): MailConfig | { missing: string[] } {
 	const required = {
 		IMAP_HOST: env.IMAP_HOST,
 		IMAP_USER: env.IMAP_USER,
@@ -53,7 +58,7 @@ function getConfig(): MailConfig | { missing: string[]; mailbox: string } {
 		.map(([key]) => key);
 
 	if (missing.length > 0) {
-		return { missing, mailbox };
+		return { missing };
 	}
 
 	return {
@@ -62,7 +67,6 @@ function getConfig(): MailConfig | { missing: string[]; mailbox: string } {
 		secure: parseBoolean(env.IMAP_SECURE, true),
 		user: env.IMAP_USER!,
 		password: env.IMAP_PASSWORD!,
-		mailbox,
 		pollSeconds: parseNumber(env.IMAP_POLL_SECONDS, 15)
 	};
 }
@@ -196,45 +200,23 @@ async function storeMessage(
 		});
 }
 
-async function runSync(config: MailConfig): Promise<SyncResult> {
-	const state = await readSyncState(config.mailbox);
+async function syncOneMailbox(
+	client: ImapFlow,
+	mailboxPath: string,
+	pollMs: number
+): Promise<void> {
+	const state = await readSyncState(mailboxPath);
 	const lastSyncedAt = state?.lastSyncedAt?.getTime() ?? 0;
-	const pollMs = config.pollSeconds * 1000;
-	const previousFetchedCount = state?.lastFetchedCount ?? 0;
-	const previousStoredCount = state?.lastStoredCount ?? 0;
+
+	if (lastSyncedAt && Date.now() - lastSyncedAt < pollMs) return;
+
 	const historyComplete = state?.historyComplete ?? false;
-
-	if (lastSyncedAt && Date.now() - lastSyncedAt < pollMs) {
-		return {
-			mailbox: config.mailbox,
-			configured: true,
-			skipped: true,
-			fetchedCount: previousFetchedCount,
-			storedCount: previousStoredCount,
-			lastSyncedAt: state?.lastSyncedAt?.toISOString() ?? null,
-			lastError: state?.lastError ?? null,
-			reason: 'Mailbox sync is still fresh.'
-		};
-	}
-
-	const client = new ImapFlow({
-		host: config.host,
-		port: config.port,
-		secure: config.secure,
-		auth: {
-			user: config.user,
-			pass: config.password
-		}
-	});
-
+	let nextLastUid = state?.lastUid ?? 0;
 	let fetchedCount = 0;
 	let storedCount = 0;
-	let nextLastUid = state?.lastUid ?? 0;
 
 	try {
-		await client.connect();
-		const lock = await client.getMailboxLock(config.mailbox);
-
+		const lock = await client.getMailboxLock(mailboxPath);
 		try {
 			const needsInitialBackfill = !historyComplete && nextLastUid === 0;
 			const range = needsInitialBackfill ? '1:*' : `${nextLastUid + 1}:*`;
@@ -242,19 +224,13 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 
 			for await (const item of client.fetch(
 				range,
-				{
-					uid: true,
-					source: true,
-					flags: true,
-					internalDate: true
-				},
+				{ uid: true, source: true, flags: true, internalDate: true },
 				fetchOptions
 			)) {
 				if (!item.uid || !item.source) continue;
 
 				const parsed = await simpleParser(item.source);
 				const flags = Array.from(item.flags ?? []).map(String);
-
 				const internalDate =
 					item.internalDate instanceof Date
 						? item.internalDate
@@ -262,17 +238,16 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 							? new Date(item.internalDate)
 							: undefined;
 
-				await storeMessage(config.mailbox, parsed, item.uid, flags, internalDate);
+				await storeMessage(mailboxPath, parsed, item.uid, flags, internalDate);
 				fetchedCount += 1;
 				storedCount += 1;
 				nextLastUid = Math.max(nextLastUid, item.uid);
 			}
 		} finally {
 			lock.release();
-			await client.logout();
 		}
 
-		await saveSyncState(config.mailbox, {
+		await saveSyncState(mailboxPath, {
 			lastUid: nextLastUid,
 			historyComplete: true,
 			lastFetchedCount: fetchedCount,
@@ -280,84 +255,66 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 			lastSyncedAt: new Date(),
 			lastError: null
 		});
-
-		const refreshedState = await readSyncState(config.mailbox);
-
-		return {
-			mailbox: config.mailbox,
-			configured: true,
-			skipped: false,
-			fetchedCount,
-			storedCount,
-			lastSyncedAt: refreshedState?.lastSyncedAt?.toISOString() ?? null,
-			lastError: null
-		};
 	} catch (error) {
-		const message = getErrorMessage(error);
-		const effectiveFetchedCount = fetchedCount || previousFetchedCount;
-		const effectiveStoredCount = storedCount || previousStoredCount;
-
-		await saveSyncState(config.mailbox, {
+		await saveSyncState(mailboxPath, {
 			lastUid: nextLastUid,
 			historyComplete,
-			lastFetchedCount: effectiveFetchedCount,
-			lastStoredCount: effectiveStoredCount,
+			lastFetchedCount: fetchedCount || (state?.lastFetchedCount ?? 0),
+			lastStoredCount: storedCount || (state?.lastStoredCount ?? 0),
 			lastSyncedAt: new Date(),
-			lastError: message
+			lastError: getErrorMessage(error)
 		});
-
-		const refreshedState = await readSyncState(config.mailbox);
-
-		return {
-			mailbox: config.mailbox,
-			configured: true,
-			skipped: false,
-			fetchedCount: effectiveFetchedCount,
-			storedCount: effectiveStoredCount,
-			lastSyncedAt: refreshedState?.lastSyncedAt?.toISOString() ?? null,
-			lastError: message,
-			reason: 'Mailbox sync failed.'
-		};
 	}
 }
 
-export async function syncMailboxIfDue() {
-	const config = getConfig();
+async function runSyncAll(config: MailConfig): Promise<void> {
+	const client = new ImapFlow({
+		host: config.host,
+		port: config.port,
+		secure: config.secure,
+		auth: { user: config.user, pass: config.password },
+		logger: false
+	});
 
-	if ('missing' in config) {
-		return {
-			mailbox: config.mailbox,
-			configured: false,
-			skipped: true,
-			fetchedCount: 0,
-			storedCount: 0,
-			lastSyncedAt: null,
-			lastError: null,
-			reason: `Missing ${config.missing.join(', ')}.`
-		} satisfies SyncResult;
+	const pollMs = config.pollSeconds * 1000;
+
+	try {
+		await client.connect();
+		const listed = await client.list();
+
+		// Update mailbox cache while we have the connection open
+		cachedMailboxes = listed.map((mb) => ({
+			path: mb.path,
+			name: mb.name,
+			delimiter: mb.delimiter ?? '/'
+		}));
+		mailboxCacheExpiry = Date.now() + MAILBOX_CACHE_MS;
+
+		for (const mb of listed) {
+			await syncOneMailbox(client, mb.path, pollMs);
+		}
+	} finally {
+		try { await client.logout(); } catch { /* ignore */ }
 	}
-
-	if (!activeSync) {
-		activeSync = runSync(config).finally(() => {
-			activeSync = null;
-		});
-	}
-
-	return activeSync;
 }
 
 export function startMailboxSync() {
-	void syncMailboxIfDue().catch(() => {
-		// Sync failures are persisted to mailbox_sync and surfaced via getMailboxSyncStatus.
-	});
+	const config = getConfig();
+	if ('missing' in config) return;
+
+	if (!activeSync) {
+		activeSync = runSyncAll(config).finally(() => {
+			activeSync = null;
+		});
+	}
 }
 
-export async function getMailboxSyncStatus(): Promise<SyncResult> {
+export async function getMailboxSyncStatus(mailboxPath: string): Promise<SyncResult> {
 	const config = getConfig();
 
 	if ('missing' in config) {
 		return {
-			mailbox: config.mailbox,
+			mailbox: mailboxPath,
 			configured: false,
 			skipped: true,
 			syncing: false,
@@ -369,11 +326,11 @@ export async function getMailboxSyncStatus(): Promise<SyncResult> {
 		};
 	}
 
-	const state = await readSyncState(config.mailbox);
+	const state = await readSyncState(mailboxPath);
 
 	if (!state) {
 		return {
-			mailbox: config.mailbox,
+			mailbox: mailboxPath,
 			configured: true,
 			skipped: true,
 			syncing: activeSync !== null,
@@ -390,7 +347,7 @@ export async function getMailboxSyncStatus(): Promise<SyncResult> {
 	const skipped = !!lastSyncedAt && Date.now() - lastSyncedAt < pollMs;
 
 	return {
-		mailbox: config.mailbox,
+		mailbox: mailboxPath,
 		configured: true,
 		skipped,
 		syncing: activeSync !== null,
@@ -408,28 +365,89 @@ export async function getMailboxSyncStatus(): Promise<SyncResult> {
 	};
 }
 
-export async function listStoredMessages(limit = 100, offset = 0) {
-	const config = getConfig();
-	const mailbox = 'missing' in config ? config.mailbox : config.mailbox;
+export type ImapMailbox = {
+	path: string;
+	name: string;
+	delimiter: string;
+};
 
+let cachedMailboxes: ImapMailbox[] | null = null;
+let mailboxCacheExpiry = 0;
+const MAILBOX_CACHE_MS = 5 * 60 * 1000;
+
+export async function listImapMailboxes(): Promise<ImapMailbox[]> {
+	if (cachedMailboxes && Date.now() < mailboxCacheExpiry) {
+		return cachedMailboxes;
+	}
+
+	const config = getConfig();
+	if ('missing' in config) return [];
+
+	const client = new ImapFlow({
+		host: config.host,
+		port: config.port,
+		secure: config.secure,
+		auth: { user: config.user, pass: config.password },
+		logger: false
+	});
+
+	try {
+		await client.connect();
+		const tree = await client.list();
+		await client.logout();
+
+		cachedMailboxes = tree.map((mb) => ({
+			path: mb.path,
+			name: mb.name,
+			delimiter: mb.delimiter ?? '/'
+		}));
+		mailboxCacheExpiry = Date.now() + MAILBOX_CACHE_MS;
+
+		return cachedMailboxes;
+	} catch {
+		return cachedMailboxes ?? [];
+	}
+}
+
+export async function listStoredMessages(mailboxPath: string, limit = 100, offset = 0) {
 	return db
 		.select()
 		.from(mailMessage)
-		.where(eq(mailMessage.mailbox, mailbox))
+		.where(eq(mailMessage.mailbox, mailboxPath))
 		.orderBy(desc(mailMessage.receivedAt), desc(mailMessage.uid))
 		.offset(offset)
 		.limit(limit);
 }
 
 export async function getStoredMessageById(id: string) {
+	const [message] = await db
+		.select()
+		.from(mailMessage)
+		.where(eq(mailMessage.id, id))
+		.limit(1);
+
+	return message ?? null;
+}
+
+export async function markMessageAsRead(id: string) {
 	const config = getConfig();
-	const mailbox = 'missing' in config ? config.mailbox : config.mailbox;
+	if ('missing' in config) return;
 
 	const [message] = await db
 		.select()
 		.from(mailMessage)
-		.where(and(eq(mailMessage.mailbox, mailbox), eq(mailMessage.id, id)))
+		.where(eq(mailMessage.id, id))
 		.limit(1);
 
-	return message ?? null;
+	if (!message) return;
+
+	const flags: string[] = JSON.parse(message.flags);
+	if (flags.includes('\\Seen')) return;
+
+	await db
+		.update(mailMessage)
+		.set({ flags: JSON.stringify([...flags, '\\Seen']) })
+		.where(eq(mailMessage.id, id));
+
+	enqueueMarkRead(message.uid, message.mailbox);
 }

@@ -1,5 +1,6 @@
 import type { LayoutServerLoad } from './$types';
-import { getMailboxSyncStatus, listStoredMessages, startMailboxSync } from '$lib/server/mail';
+import { getMailboxSyncStatus, listStoredMessages } from '$lib/server/mail';
+import { slugToPath } from '$lib/mailbox';
 
 const PAGE_SIZE = 50;
 
@@ -17,13 +18,15 @@ function serializeMessage(message: Awaited<ReturnType<typeof listStoredMessages>
 	};
 }
 
-export const load: LayoutServerLoad = async () => {
-	startMailboxSync();
+export const load: LayoutServerLoad = async ({ params, parent }) => {
+	const { imapMailboxes } = await parent();
+	const mailboxPath = slugToPath(params.mailbox, imapMailboxes);
 
 	const [sync, rawMessages] = await Promise.all([
-		getMailboxSyncStatus(),
-		listStoredMessages(PAGE_SIZE + 1, 0)
+		getMailboxSyncStatus(mailboxPath),
+		listStoredMessages(mailboxPath, PAGE_SIZE + 1, 0)
 	]);
+
 	const hasMore = rawMessages.length > PAGE_SIZE;
 
 	return {
