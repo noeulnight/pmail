@@ -597,10 +597,9 @@ export async function moveMessage(message: MailRow, action: MessageAction): Prom
 	const targetMailbox = findMailboxForAction(action);
 	if (!targetMailbox || targetMailbox === message.mailbox) return null;
 
-	// Optimistically update DB: move message to target mailbox
+	// Optimistically remove from source mailbox — next sync will add it to target
 	await db
-		.update(mailMessageMailbox)
-		.set({ mailbox: targetMailbox })
+		.delete(mailMessageMailbox)
 		.where(eq(mailMessageMailbox.id, message.id));
 
 	enqueueMoveMessage(message.uid, message.mailbox, targetMailbox);

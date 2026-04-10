@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Archive, Trash2, ShieldAlert, Reply, ReplyAll, Forward } from 'lucide-svelte';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 
 	type Message = {
@@ -36,6 +36,7 @@
 				body: JSON.stringify({ action })
 			});
 			if (res.ok) {
+				await invalidateAll();
 				await goto(`/${page.params.mailbox}`);
 			}
 		} finally {
