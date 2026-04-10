@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { db } from '$lib/server/db';
@@ -292,4 +292,17 @@ export async function listStoredMessages(limit = 100) {
 		.where(eq(mailMessage.mailbox, mailbox))
 		.orderBy(desc(mailMessage.receivedAt), desc(mailMessage.uid))
 		.limit(limit);
+}
+
+export async function getStoredMessageById(id: string) {
+	const config = getConfig();
+	const mailbox = 'missing' in config ? config.mailbox : config.mailbox;
+
+	const [message] = await db
+		.select()
+		.from(mailMessage)
+		.where(and(eq(mailMessage.mailbox, mailbox), eq(mailMessage.id, id)))
+		.limit(1);
+
+	return message ?? null;
 }

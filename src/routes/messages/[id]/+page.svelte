@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
-
 	type SyncData = {
 		mailbox: string;
 		configured: boolean;
@@ -20,6 +17,7 @@
 		from: string | null;
 		to: string | null;
 		preview: string | null;
+		htmlContent: string | null;
 		textContent: string | null;
 		flags: string[];
 		receivedAt: string | null;
@@ -28,30 +26,18 @@
 	type Props = {
 		data: {
 			sync: SyncData;
-			messages: Message[];
+			message: Message;
 		};
 	};
 
 	let { data }: Props = $props();
 
 	const sync = $derived(data.sync);
-	const messages = $derived(data.messages);
-	const refreshIntervalMs = $derived.by(() => {
-		if (!sync.configured) return 60_000;
-		if (sync.lastError) return 15_000;
-		return 15_000;
-	});
+	const message = $derived(data.message);
 
 	const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 		dateStyle: 'medium',
 		timeStyle: 'short'
-	});
-
-	const timeFormatter = new Intl.DateTimeFormat(undefined, {
-		month: 'short',
-		day: 'numeric',
-		hour: 'numeric',
-		minute: '2-digit'
 	});
 
 	function formatDateTime(value: string | null | undefined) {
@@ -59,18 +45,14 @@
 		return dateTimeFormatter.format(new Date(value));
 	}
 
-	function formatMessageTime(value: string | null) {
-		if (!value) return 'Unknown';
-		return timeFormatter.format(new Date(value));
-	}
-
-	function isUnread(flags: string[] = []) {
-		return !flags.includes('\\Seen');
-	}
-
 	function senderLabel(from: string | null | undefined) {
 		if (!from) return 'Unknown sender';
 		return from;
+	}
+
+	function recipientLabel(to: string | null | undefined) {
+		if (!to) return 'Unknown recipient';
+		return to;
 	}
 
 	function subjectLabel(subject: string | null | undefined) {
@@ -85,20 +67,13 @@
 		return preview || textContent || 'No preview available.';
 	}
 
-	onMount(() => {
-		const intervalMs = refreshIntervalMs;
-		const interval = setInterval(() => {
-			if (document.visibilityState === 'visible') {
-				void invalidateAll();
-			}
-		}, intervalMs);
-
-		return () => clearInterval(interval);
-	});
+	function isUnread(flags: string[] = []) {
+		return !flags.includes('\\Seen');
+	}
 </script>
 
 <svelte:head>
-	<title>Inbox</title>
+	<title>{subjectLabel(message.subject)} · Inbox</title>
 </svelte:head>
 
 <div class="min-h-screen bg-slate-950 text-slate-100">
@@ -161,82 +136,83 @@
 						</p>
 					</div>
 					<div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-						<p class="text-xs tracking-wide text-slate-500 uppercase">Refresh</p>
+						<p class="text-xs tracking-wide text-slate-500 uppercase">Message</p>
 						<p class="mt-2 text-sm font-medium text-slate-200">
-							{Math.round(refreshIntervalMs / 1000)}s
+							{#if isUnread(message.flags)}
+								Unread
+							{:else}
+								Read
+							{/if}
 						</p>
 					</div>
 				</div>
 			</div>
 		</section>
 
+		<div>
+			<a
+				href="/"
+				class="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-sky-300 transition-colors hover:text-sky-200 focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:outline-none"
+			>
+				<span aria-hidden="true">←</span>
+				<span>Back to inbox</span>
+			</a>
+		</div>
+
 		<section class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60">
 			<div class="border-b border-slate-800 px-5 py-4 sm:px-6">
-				<div class="flex items-center justify-between gap-4">
-					<div>
-						<h2 class="text-lg font-semibold text-white">Messages</h2>
-						<p class="mt-1 text-sm text-slate-400">Latest stored mail in your inbox.</p>
+				<div class="flex flex-wrap items-start justify-between gap-4">
+					<div class="min-w-0">
+						<div class="flex flex-wrap items-center gap-2">
+							<h2 class="text-lg font-semibold text-white">{subjectLabel(message.subject)}</h2>
+							{#if isUnread(message.flags)}
+								<span
+									class="inline-flex items-center rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-sky-300 uppercase"
+								>
+									New
+								</span>
+							{/if}
+						</div>
+						<p class="mt-1 text-sm text-slate-400">Full message details</p>
 					</div>
-					<p class="text-sm text-slate-500">{messages.length} total</p>
+					<p class="text-sm text-slate-500">Received {formatDateTime(message.receivedAt)}</p>
 				</div>
 			</div>
 
-			<div class="divide-y divide-slate-800">
-				{#each messages as message (message.id)}
-					<a
-						href={`/messages/${message.id}`}
-						class={[
-							'block px-5 py-4 transition-colors sm:px-6',
-							'hover:bg-slate-800/40 focus-visible:bg-slate-800/40 focus-visible:ring-2 focus-visible:ring-sky-400/70 focus-visible:outline-none focus-visible:ring-inset'
-						]}
-						data-sveltekit-preload-data="hover"
-					>
-						<article class="flex flex-col gap-3">
-							<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-								<div class="min-w-0 flex-1">
-									<div class="flex flex-wrap items-center gap-2">
-										<h3
-											class={[
-												'text-base leading-6 text-white',
-												isUnread(message.flags) ? 'font-semibold' : 'font-medium text-slate-200'
-											]}
-										>
-											{subjectLabel(message.subject)}
-										</h3>
-
-										{#if isUnread(message.flags)}
-											<span
-												class="inline-flex items-center rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-sky-300 uppercase"
-											>
-												New
-											</span>
-										{/if}
-									</div>
-
-									<p class="mt-1 truncate text-sm text-slate-400">{senderLabel(message.from)}</p>
-								</div>
-
-								<p class="shrink-0 text-sm text-slate-500">
-									{formatMessageTime(message.receivedAt)}
-								</p>
-							</div>
-
-							<p class="text-sm leading-6 text-slate-300">
-								{previewLabel(message.preview, message.textContent)}
-							</p>
-						</article>
-					</a>
-				{:else}
-					<div class="flex flex-col items-center justify-center px-6 py-16 text-center">
-						<div class="rounded-full border border-slate-800 bg-slate-950/80 p-4 text-slate-400">
-							✉️
-						</div>
-						<h3 class="mt-5 text-lg font-semibold text-white">No messages yet</h3>
-						<p class="mt-2 max-w-md text-sm leading-6 text-slate-400">
-							Stored inbox messages will appear here after the first successful sync.
-						</p>
+			<div class="space-y-6 px-5 py-5 sm:px-6">
+				<dl class="grid gap-4 sm:grid-cols-2">
+					<div>
+						<dt class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">From</dt>
+						<dd class="mt-1 text-sm leading-6 text-slate-200">{senderLabel(message.from)}</dd>
 					</div>
-				{/each}
+					<div>
+						<dt class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">To</dt>
+						<dd class="mt-1 text-sm leading-6 text-slate-200">{recipientLabel(message.to)}</dd>
+					</div>
+					<div class="sm:col-span-2">
+						<dt class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Preview</dt>
+						<dd class="mt-1 text-sm leading-6 text-slate-300">
+							{previewLabel(message.preview, message.textContent)}
+						</dd>
+					</div>
+					<div class="sm:col-span-2">
+						<dt class="text-xs font-semibold tracking-[0.2em] text-slate-500 uppercase">Body</dt>
+						<dd class="mt-3 overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+							{#if message.htmlContent}
+								<iframe
+									title={`Email body for ${subjectLabel(message.subject)}`}
+									sandbox=""
+									srcdoc={message.htmlContent}
+									class="block min-h-96 w-full rounded-lg border border-slate-800 bg-white"
+								></iframe>
+							{:else}
+								<pre
+									class="font-sans text-sm leading-6 break-words whitespace-pre-wrap text-slate-200">{message.textContent ||
+										'No message body available.'}</pre>
+							{/if}
+						</dd>
+					</div>
+				</dl>
 			</div>
 		</section>
 	</div>
