@@ -2,6 +2,7 @@
 	import { Archive, Trash2, ShieldAlert, Reply, ReplyAll, Forward } from 'lucide-svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
+	import { openReply, openReplyAll, openForward } from '$lib/composer.svelte';
 
 	type Message = {
 		id: number;
@@ -206,6 +207,7 @@
 					<button
 						type="button"
 						aria-label="Reply"
+						onclick={() => openReply(message)}
 						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
 					>
 						<Reply size={16} />
@@ -218,6 +220,7 @@
 					<button
 						type="button"
 						aria-label="Reply all"
+						onclick={() => openReplyAll(message)}
 						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
 					>
 						<ReplyAll size={16} />
@@ -230,6 +233,7 @@
 					<button
 						type="button"
 						aria-label="Forward"
+						onclick={() => openForward(message)}
 						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
 					>
 						<Forward size={16} />

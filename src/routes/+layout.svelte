@@ -3,9 +3,11 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import { Inbox, Send, FileText, Trash2, ArchiveX, Archive, Folder } from 'lucide-svelte';
+	import { Inbox, Send, FileText, Trash2, ArchiveX, Archive, Folder, Pencil } from 'lucide-svelte';
 	import type { Component } from 'svelte';
 	import { pathToSlug } from '$lib/mailbox';
+	import Composer from '$lib/components/Composer.svelte';
+	import { openCompose } from '$lib/composer.svelte';
 
 	type ImapMailbox = {
 		path: string;
@@ -92,6 +94,16 @@
 >
 	<aside style="width: {sidebarWidth}px; min-width: {sidebarWidth}px" class="flex flex-col bg-[#0a0a0d]">
 		<div class="p-3 sm:p-4">
+			<div class="mb-3 px-1">
+				<button
+					type="button"
+					onclick={openCompose}
+					class="flex w-full items-center gap-2 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
+				>
+					<Pencil size={14} />
+					Compose
+				</button>
+			</div>
 			<p class="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-widest text-zinc-500">Mail</p>
 			<nav class="space-y-1.5">
 				{#each mailboxes as mb (mb.slug)}
@@ -127,3 +139,5 @@
 		{@render children()}
 	</div>
 </div>
+
+<Composer />
