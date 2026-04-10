@@ -11,7 +11,10 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
-RUN DATABASE_URL=build-placeholder pnpm build
+RUN DATABASE_URL=build-placeholder \
+    BETTER_AUTH_SECRET=build-placeholder \
+    BETTER_AUTH_URL=http://localhost \
+    pnpm build
 
 
 # ── runtime stage ──────────────────────────────────────────────────────────────
