@@ -90,10 +90,12 @@
 *::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,0.32)}
 </style>`;
 
+	const BASE_TARGET = '<base target="_blank" rel="noopener noreferrer">';
+
 	function injectScrollbarStyle(html: string): string {
 		const headClose = html.indexOf('</head>');
-		if (headClose !== -1) return html.slice(0, headClose) + SCROLLBAR_STYLE + html.slice(headClose);
-		return SCROLLBAR_STYLE + html;
+		if (headClose !== -1) return html.slice(0, headClose) + SCROLLBAR_STYLE + BASE_TARGET + html.slice(headClose);
+		return SCROLLBAR_STYLE + BASE_TARGET + html;
 	}
 
 	const srcdoc = $derived(message.htmlContent ? injectScrollbarStyle(message.htmlContent) : null);
@@ -271,7 +273,7 @@
 			{#if srcdoc}
 				<iframe
 					title={`Email body for ${subjectLabel(message.subject)}`}
-					sandbox=""
+					sandbox="allow-popups"
 					{srcdoc}
 					class="block h-full w-full bg-white"
 				></iframe>
