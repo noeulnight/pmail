@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getStoredMessageById, markMessageAsRead } from '$lib/server/mail';
+import { getStoredMessageById, markMessageAsRead, getMailboxRole } from '$lib/server/mail';
 
 function serializeMessage(message: NonNullable<Awaited<ReturnType<typeof getStoredMessageById>>>) {
 	return {
@@ -26,5 +26,8 @@ export const load: PageServerLoad = async ({ params }) => {
 
 	void markMessageAsRead(message);
 
-	return { message: serializeMessage(message) };
+	return {
+		message: serializeMessage(message),
+		mailboxRole: getMailboxRole(message.mailbox)
+	};
 };

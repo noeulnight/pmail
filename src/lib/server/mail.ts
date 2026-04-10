@@ -458,13 +458,21 @@ export async function markMessageAsRead(message: MailRow) {
 	enqueueMarkRead(message.uid, message.mailbox);
 }
 
-export type MessageAction = 'archive' | 'trash' | 'spam';
+export type MessageAction = 'archive' | 'trash' | 'spam' | 'inbox';
 
 const ROLE_PATTERNS: Record<MessageAction, RegExp> = {
+	inbox: /\binbox\b/i,
 	archive: /\b(archive|all[\s._-]?mail)\b/i,
 	trash: /\b(trash|deleted[\s._-]?(items|messages)?)\b/i,
 	spam: /\b(spam|junk([\s._-]?email)?)\b/i
 };
+
+export function getMailboxRole(mailboxPath: string): MessageAction | null {
+	for (const [role, pattern] of Object.entries(ROLE_PATTERNS) as [MessageAction, RegExp][]) {
+		if (pattern.test(mailboxPath)) return role;
+	}
+	return null;
+}
 
 export function findMailboxForAction(action: MessageAction): string | null {
 	const mailboxes = cachedMailboxes ?? [];

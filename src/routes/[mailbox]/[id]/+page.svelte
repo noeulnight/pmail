@@ -17,14 +17,16 @@
 	};
 
 	type Props = {
-		data: { message: Message };
+		data: { message: Message; mailboxRole: 'inbox' | 'archive' | 'trash' | 'spam' | null };
 	};
 
 	let { data }: Props = $props();
 
+	const role = $derived(data.mailboxRole);
+
 	let acting = $state(false);
 
-	async function performAction(action: 'archive' | 'trash' | 'spam') {
+	async function performAction(action: 'archive' | 'trash' | 'spam' | 'inbox') {
 		if (acting) return;
 		acting = true;
 		try {
@@ -105,48 +107,95 @@
 	<div class="border-b border-white/8 p-4 sm:p-5">
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div class="flex flex-wrap items-center gap-1">
-				<div class="group relative">
-					<button
-						type="button"
-						aria-label="Archive"
-						disabled={acting}
-						onclick={() => performAction('archive')}
-						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
-					>
-						<Archive size={16} />
-					</button>
-					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
-						Archive
-					</span>
-				</div>
-				<div class="group relative">
-					<button
-						type="button"
-						aria-label="Delete"
-						disabled={acting}
-						onclick={() => performAction('trash')}
-						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed"
-					>
-						<Trash2 size={16} />
-					</button>
-					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
-						Delete
-					</span>
-				</div>
-				<div class="group relative">
-					<button
-						type="button"
-						aria-label="Move to spam"
-						disabled={acting}
-						onclick={() => performAction('spam')}
-						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
-					>
-						<ShieldAlert size={16} />
-					</button>
-					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
-						Move to spam
-					</span>
-				</div>
+				{#if role === 'archive'}
+					<div class="group relative">
+						<button
+							type="button"
+							aria-label="Move to inbox"
+							disabled={acting}
+							onclick={() => performAction('inbox')}
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							<Archive size={16} />
+						</button>
+						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+							Move to inbox
+						</span>
+					</div>
+				{:else if role === 'trash'}
+					<div class="group relative">
+						<button
+							type="button"
+							aria-label="Restore"
+							disabled={acting}
+							onclick={() => performAction('inbox')}
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							<Trash2 size={16} />
+						</button>
+						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+							Restore
+						</span>
+					</div>
+				{:else if role === 'spam'}
+					<div class="group relative">
+						<button
+							type="button"
+							aria-label="Not spam"
+							disabled={acting}
+							onclick={() => performAction('inbox')}
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							<ShieldAlert size={16} />
+						</button>
+						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+							Not spam
+						</span>
+					</div>
+				{:else}
+					<div class="group relative">
+						<button
+							type="button"
+							aria-label="Archive"
+							disabled={acting}
+							onclick={() => performAction('archive')}
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							<Archive size={16} />
+						</button>
+						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+							Archive
+						</span>
+					</div>
+					<div class="group relative">
+						<button
+							type="button"
+							aria-label="Delete"
+							disabled={acting}
+							onclick={() => performAction('trash')}
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							<Trash2 size={16} />
+						</button>
+						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+							Delete
+						</span>
+					</div>
+					<div class="group relative">
+						<button
+							type="button"
+							aria-label="Move to spam"
+							disabled={acting}
+							onclick={() => performAction('spam')}
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							<ShieldAlert size={16} />
+						</button>
+						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+							Move to spam
+						</span>
+					</div>
+				{/if}
 			</div>
 
 			<div class="flex flex-wrap items-center gap-1">

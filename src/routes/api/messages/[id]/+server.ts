@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getStoredMessageById, moveMessage, type MessageAction } from '$lib/server/mail';
 
-const VALID_ACTIONS = new Set<MessageAction>(['archive', 'trash', 'spam']);
+const VALID_ACTIONS = new Set<MessageAction>(['archive', 'trash', 'spam', 'inbox']);
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const body = await request.json().catch(() => null);
