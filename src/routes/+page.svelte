@@ -6,6 +6,7 @@
 		mailbox: string;
 		configured: boolean;
 		skipped: boolean;
+		syncing?: boolean;
 		fetchedCount: number;
 		storedCount: number;
 		lastSyncedAt: string | null;
@@ -29,17 +30,67 @@
 		data: {
 			sync: SyncData;
 			messages: Message[];
+			hasMore: boolean;
+			pageSize: number;
 		};
 	};
 
 	let { data }: Props = $props();
 
 	const sync = $derived(data.sync);
-	const messages = $derived(data.messages);
+	let messages = $state<Message[]>([]);
+	let hasMore = $state(false);
+	let isLoadingMore = $state(false);
+	let loadMoreError = $state<string | null>(null);
+	let sentinel = $state<HTMLDivElement | null>(null);
+	let loadedCount = 0;
+	let syncRequestId = 0;
+	const pageSize = $derived(data.pageSize);
 	const refreshIntervalMs = $derived.by(() => {
 		if (!sync.configured) return 60_000;
 		if (sync.lastError) return 15_000;
 		return 15_000;
+	});
+
+	async function syncVisibleMessages() {
+		const targetCount = Math.max(loadedCount, data.messages.length);
+
+		if (targetCount <= data.messages.length) {
+			messages = data.messages;
+			hasMore = data.hasMore;
+			loadedCount = data.messages.length;
+			loadMoreError = null;
+			return;
+		}
+
+		const requestId = ++syncRequestId;
+
+		try {
+			const response = await fetch(`/api/messages?offset=0&limit=${targetCount}`);
+			if (!response.ok) throw new Error('Failed to refresh loaded messages.');
+
+			const payload = (await response.json()) as {
+				messages: Message[];
+				hasMore: boolean;
+			};
+
+			if (requestId !== syncRequestId) return;
+
+			messages = payload.messages;
+			hasMore = payload.hasMore;
+			loadedCount = payload.messages.length;
+			loadMoreError = null;
+		} catch {
+			if (requestId !== syncRequestId) return;
+
+			messages = data.messages;
+			hasMore = data.hasMore;
+			loadedCount = data.messages.length;
+		}
+	}
+
+	$effect(() => {
+		void syncVisibleMessages();
 	});
 
 	const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -85,6 +136,31 @@
 		return preview || textContent || 'No preview available.';
 	}
 
+	async function loadMoreMessages() {
+		if (isLoadingMore || !hasMore) return;
+
+		isLoadingMore = true;
+		loadMoreError = null;
+
+		try {
+			const response = await fetch(`/api/messages?offset=${messages.length}&limit=${pageSize}`);
+			if (!response.ok) throw new Error('Failed to load more messages.');
+
+			const payload = (await response.json()) as {
+				messages: Message[];
+				hasMore: boolean;
+			};
+
+			messages = [...messages, ...payload.messages];
+			hasMore = payload.hasMore;
+			loadedCount = messages.length;
+		} catch (error) {
+			loadMoreError = error instanceof Error ? error.message : 'Failed to load more messages.';
+		} finally {
+			isLoadingMore = false;
+		}
+	}
+
 	onMount(() => {
 		const intervalMs = refreshIntervalMs;
 		const interval = setInterval(() => {
@@ -94,6 +170,23 @@
 		}, intervalMs);
 
 		return () => clearInterval(interval);
+	});
+
+	$effect(() => {
+		if (!sentinel) return;
+
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					void loadMoreMessages();
+				}
+			},
+			{ rootMargin: '200px 0px' }
+		);
+
+		observer.observe(sentinel);
+
+		return () => observer.disconnect();
 	});
 </script>
 
@@ -143,17 +236,21 @@
 
 				<div class="grid min-w-full grid-cols-2 gap-3 sm:min-w-80">
 					<div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-						<p class="text-xs tracking-wide text-slate-500 uppercase">Fetched</p>
+						<p class="text-xs tracking-wide text-slate-500 uppercase">Last fetched</p>
 						<p class="mt-2 text-2xl font-semibold text-white">{sync.fetchedCount}</p>
 					</div>
 					<div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-						<p class="text-xs tracking-wide text-slate-500 uppercase">Stored</p>
+						<p class="text-xs tracking-wide text-slate-500 uppercase">Last stored</p>
 						<p class="mt-2 text-2xl font-semibold text-white">{sync.storedCount}</p>
 					</div>
 					<div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
 						<p class="text-xs tracking-wide text-slate-500 uppercase">Status</p>
 						<p class="mt-2 text-sm font-medium text-slate-200">
-							{#if sync.skipped}
+							{#if sync.syncing}
+								Syncing
+							{:else if sync.lastError}
+								Error
+							{:else if sync.skipped}
 								Skipped
 							{:else}
 								Synced
@@ -177,7 +274,7 @@
 						<h2 class="text-lg font-semibold text-white">Messages</h2>
 						<p class="mt-1 text-sm text-slate-400">Latest stored mail in your inbox.</p>
 					</div>
-					<p class="text-sm text-slate-500">{messages.length} total</p>
+					<p class="text-sm text-slate-500">{messages.length} loaded</p>
 				</div>
 			</div>
 
@@ -237,6 +334,30 @@
 						</p>
 					</div>
 				{/each}
+
+				{#if messages.length > 0}
+					<div class="px-5 py-6 sm:px-6">
+						{#if loadMoreError}
+							<p class="text-sm text-rose-300">{loadMoreError}</p>
+						{/if}
+
+						{#if hasMore}
+							<div bind:this={sentinel} class="h-1 w-full"></div>
+							<div class="flex justify-center">
+								<button
+									type="button"
+									class="rounded-lg border border-slate-700 bg-slate-950/80 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+									onclick={() => void loadMoreMessages()}
+									disabled={isLoadingMore}
+								>
+									{isLoadingMore ? 'Loading...' : 'Load more'}
+								</button>
+							</div>
+						{:else}
+							<p class="text-center text-sm text-slate-500">All stored messages are loaded.</p>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		</section>
 	</div>

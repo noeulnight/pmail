@@ -1,5 +1,7 @@
 import type { PageServerLoad } from './$types';
-import { listStoredMessages, syncMailboxIfDue } from '$lib/server/mail';
+import { getMailboxSyncStatus, listStoredMessages, startMailboxSync } from '$lib/server/mail';
+
+const PAGE_SIZE = 50;
 
 function serializeMessage(message: Awaited<ReturnType<typeof listStoredMessages>>[number]) {
 	return {
@@ -16,11 +18,18 @@ function serializeMessage(message: Awaited<ReturnType<typeof listStoredMessages>
 }
 
 export const load: PageServerLoad = async () => {
-	const sync = await syncMailboxIfDue();
-	const messages = await listStoredMessages(100);
+	startMailboxSync();
+
+	const [sync, messages] = await Promise.all([
+		getMailboxSyncStatus(),
+		listStoredMessages(PAGE_SIZE + 1, 0)
+	]);
+	const hasMore = messages.length > PAGE_SIZE;
 
 	return {
 		sync,
-		messages: messages.map(serializeMessage)
+		messages: messages.slice(0, PAGE_SIZE).map(serializeMessage),
+		hasMore,
+		pageSize: PAGE_SIZE
 	};
 };

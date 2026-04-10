@@ -11,6 +11,9 @@ export const task = sqliteTable('task', {
 export const mailboxSync = sqliteTable('mailbox_sync', {
 	mailbox: text('mailbox').primaryKey(),
 	lastUid: integer('last_uid').notNull().default(0),
+	historyComplete: integer('history_complete', { mode: 'boolean' }).notNull().default(false),
+	lastFetchedCount: integer('last_fetched_count').notNull().default(0),
+	lastStoredCount: integer('last_stored_count').notNull().default(0),
 	lastSyncedAt: integer('last_synced_at', { mode: 'timestamp_ms' }),
 	lastError: text('last_error')
 });

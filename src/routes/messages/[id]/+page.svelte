@@ -3,6 +3,7 @@
 		mailbox: string;
 		configured: boolean;
 		skipped: boolean;
+		syncing?: boolean;
 		fetchedCount: number;
 		storedCount: number;
 		lastSyncedAt: string | null;
@@ -118,17 +119,21 @@
 
 				<div class="grid min-w-full grid-cols-2 gap-3 sm:min-w-80">
 					<div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-						<p class="text-xs tracking-wide text-slate-500 uppercase">Fetched</p>
+						<p class="text-xs tracking-wide text-slate-500 uppercase">Last fetched</p>
 						<p class="mt-2 text-2xl font-semibold text-white">{sync.fetchedCount}</p>
 					</div>
 					<div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-						<p class="text-xs tracking-wide text-slate-500 uppercase">Stored</p>
+						<p class="text-xs tracking-wide text-slate-500 uppercase">Last stored</p>
 						<p class="mt-2 text-2xl font-semibold text-white">{sync.storedCount}</p>
 					</div>
 					<div class="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
 						<p class="text-xs tracking-wide text-slate-500 uppercase">Status</p>
 						<p class="mt-2 text-sm font-medium text-slate-200">
-							{#if sync.skipped}
+							{#if sync.syncing}
+								Syncing
+							{:else if sync.lastError}
+								Error
+							{:else if sync.skipped}
 								Skipped
 							{:else}
 								Synced

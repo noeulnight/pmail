@@ -13,7 +13,6 @@ type MailConfig = {
 	password: string;
 	mailbox: string;
 	pollSeconds: number;
-	initialFetchCount: number;
 };
 
 export type MailRow = typeof mailMessage.$inferSelect;
@@ -22,6 +21,7 @@ export type SyncResult = {
 	mailbox: string;
 	configured: boolean;
 	skipped: boolean;
+	syncing?: boolean;
 	fetchedCount: number;
 	storedCount: number;
 	lastSyncedAt: string | null;
@@ -63,8 +63,7 @@ function getConfig(): MailConfig | { missing: string[]; mailbox: string } {
 		user: env.IMAP_USER!,
 		password: env.IMAP_PASSWORD!,
 		mailbox,
-		pollSeconds: parseNumber(env.IMAP_POLL_SECONDS, 15),
-		initialFetchCount: parseNumber(env.IMAP_INITIAL_FETCH_COUNT, 50)
+		pollSeconds: parseNumber(env.IMAP_POLL_SECONDS, 15)
 	};
 }
 
@@ -79,6 +78,59 @@ function summarizeAddresses(input: unknown) {
 
 function createPreview(text: string) {
 	return text.replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+function dedupe(values: string[]) {
+	return Array.from(new Set(values.filter(Boolean)));
+}
+
+function extractErrorParts(error: unknown, seen = new Set<unknown>()): string[] {
+	if (!error || seen.has(error)) return [];
+	seen.add(error);
+
+	if (typeof error === 'string') {
+		return error.trim() ? [error.trim()] : [];
+	}
+
+	if (!(error instanceof Error) && typeof error !== 'object') {
+		return [];
+	}
+
+	const record = error as Record<string, unknown>;
+	const parts: string[] = [];
+
+	if (error instanceof Error && error.message.trim()) {
+		parts.push(error.message.trim());
+	}
+
+	for (const key of ['responseText', 'response', 'serverResponse', 'stderr', 'stdout']) {
+		const value = record[key];
+		if (typeof value === 'string' && value.trim()) {
+			parts.push(value.trim());
+		}
+	}
+
+	if (typeof record.command === 'string' && record.command.trim()) {
+		parts.push(`Command: ${record.command.trim()}`);
+	}
+
+	if (typeof record.code === 'string' && record.code.trim()) {
+		parts.push(`Code: ${record.code.trim()}`);
+	}
+
+	if ('cause' in record) {
+		parts.push(...extractErrorParts(record.cause, seen));
+	}
+
+	return dedupe(parts);
+}
+
+function getErrorMessage(error: unknown) {
+	const parts = extractErrorParts(error);
+	const meaningfulParts =
+		parts.length > 1 ? parts.filter((part) => !/^Command failed\b/i.test(part)) : parts;
+
+	return meaningfulParts[0] ?? parts[0] ?? 'Unknown IMAP sync error';
 }
 
 async function readSyncState(mailbox: string) {
@@ -148,14 +200,17 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 	const state = await readSyncState(config.mailbox);
 	const lastSyncedAt = state?.lastSyncedAt?.getTime() ?? 0;
 	const pollMs = config.pollSeconds * 1000;
+	const previousFetchedCount = state?.lastFetchedCount ?? 0;
+	const previousStoredCount = state?.lastStoredCount ?? 0;
+	const historyComplete = state?.historyComplete ?? false;
 
 	if (lastSyncedAt && Date.now() - lastSyncedAt < pollMs) {
 		return {
 			mailbox: config.mailbox,
 			configured: true,
 			skipped: true,
-			fetchedCount: 0,
-			storedCount: 0,
+			fetchedCount: previousFetchedCount,
+			storedCount: previousStoredCount,
 			lastSyncedAt: state?.lastSyncedAt?.toISOString() ?? null,
 			lastError: state?.lastError ?? null,
 			reason: 'Mailbox sync is still fresh.'
@@ -181,19 +236,20 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 		const lock = await client.getMailboxLock(config.mailbox);
 
 		try {
-			const mailbox = client.mailbox;
-			const startUid =
-				nextLastUid > 0
-					? nextLastUid + 1
-					: Math.max(((mailbox && mailbox.exists) || 1) - config.initialFetchCount + 1, 1);
-			const range = `${startUid}:*`;
+			const needsHistoryBackfill = !historyComplete;
+			const range = needsHistoryBackfill ? '1:*' : `${nextLastUid + 1}:*`;
+			const fetchOptions = needsHistoryBackfill ? undefined : { uid: true };
 
-			for await (const item of client.fetch(range, {
-				uid: true,
-				source: true,
-				flags: true,
-				internalDate: true
-			})) {
+			for await (const item of client.fetch(
+				range,
+				{
+					uid: true,
+					source: true,
+					flags: true,
+					internalDate: true
+				},
+				fetchOptions
+			)) {
 				if (!item.uid || !item.source) continue;
 
 				const parsed = await simpleParser(item.source);
@@ -218,6 +274,9 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 
 		await saveSyncState(config.mailbox, {
 			lastUid: nextLastUid,
+			historyComplete: true,
+			lastFetchedCount: fetchedCount,
+			lastStoredCount: storedCount,
 			lastSyncedAt: new Date(),
 			lastError: null
 		});
@@ -234,10 +293,15 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 			lastError: null
 		};
 	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Unknown IMAP sync error';
+		const message = getErrorMessage(error);
+		const effectiveFetchedCount = fetchedCount || previousFetchedCount;
+		const effectiveStoredCount = storedCount || previousStoredCount;
 
 		await saveSyncState(config.mailbox, {
 			lastUid: nextLastUid,
+			historyComplete,
+			lastFetchedCount: effectiveFetchedCount,
+			lastStoredCount: effectiveStoredCount,
 			lastSyncedAt: new Date(),
 			lastError: message
 		});
@@ -248,8 +312,8 @@ async function runSync(config: MailConfig): Promise<SyncResult> {
 			mailbox: config.mailbox,
 			configured: true,
 			skipped: false,
-			fetchedCount,
-			storedCount,
+			fetchedCount: effectiveFetchedCount,
+			storedCount: effectiveStoredCount,
 			lastSyncedAt: refreshedState?.lastSyncedAt?.toISOString() ?? null,
 			lastError: message,
 			reason: 'Mailbox sync failed.'
@@ -282,7 +346,69 @@ export async function syncMailboxIfDue() {
 	return activeSync;
 }
 
-export async function listStoredMessages(limit = 100) {
+export function startMailboxSync() {
+	void syncMailboxIfDue().catch(() => {
+		// Sync failures are persisted to mailbox_sync and surfaced via getMailboxSyncStatus.
+	});
+}
+
+export async function getMailboxSyncStatus(): Promise<SyncResult> {
+	const config = getConfig();
+
+	if ('missing' in config) {
+		return {
+			mailbox: config.mailbox,
+			configured: false,
+			skipped: true,
+			syncing: false,
+			fetchedCount: 0,
+			storedCount: 0,
+			lastSyncedAt: null,
+			lastError: null,
+			reason: `Missing ${config.missing.join(', ')}.`
+		};
+	}
+
+	const state = await readSyncState(config.mailbox);
+
+	if (!state) {
+		return {
+			mailbox: config.mailbox,
+			configured: true,
+			skipped: true,
+			syncing: activeSync !== null,
+			fetchedCount: 0,
+			storedCount: 0,
+			lastSyncedAt: null,
+			lastError: null,
+			reason: activeSync ? 'Background sync in progress.' : 'Waiting for first sync.'
+		};
+	}
+
+	const pollMs = config.pollSeconds * 1000;
+	const lastSyncedAt = state.lastSyncedAt?.getTime() ?? 0;
+	const skipped = !!lastSyncedAt && Date.now() - lastSyncedAt < pollMs;
+
+	return {
+		mailbox: config.mailbox,
+		configured: true,
+		skipped,
+		syncing: activeSync !== null,
+		fetchedCount: state.lastFetchedCount,
+		storedCount: state.lastStoredCount,
+		lastSyncedAt: state.lastSyncedAt?.toISOString() ?? null,
+		lastError: state.lastError ?? null,
+		reason: activeSync
+			? 'Background sync in progress.'
+			: skipped
+				? 'Mailbox sync is still fresh.'
+				: state.lastError
+					? 'Mailbox sync failed.'
+					: undefined
+	};
+}
+
+export async function listStoredMessages(limit = 100, offset = 0) {
 	const config = getConfig();
 	const mailbox = 'missing' in config ? config.mailbox : config.mailbox;
 
@@ -291,6 +417,7 @@ export async function listStoredMessages(limit = 100) {
 		.from(mailMessage)
 		.where(eq(mailMessage.mailbox, mailbox))
 		.orderBy(desc(mailMessage.receivedAt), desc(mailMessage.uid))
+		.offset(offset)
 		.limit(limit);
 }
 

@@ -29,6 +29,27 @@
 			"when": 1744315203000,
 			"tag": "0003_mail_message_idx",
 			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "7",
+			"when": 1744315204000,
+			"tag": "0004_mailbox_sync_counts",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "7",
+			"when": 1744315205000,
+			"tag": "0005_mailbox_sync_stored_count",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1744315206000,
+			"tag": "0006_mailbox_sync_history_complete",
+			"breakpoints": true
 		}
 	]
 }
