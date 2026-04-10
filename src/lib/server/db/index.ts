@@ -2,7 +2,6 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import Database from 'better-sqlite3';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as schema from './schema';
 import { env } from '$env/dynamic/private';
 
@@ -12,9 +11,7 @@ const client = new Database(env.DATABASE_URL);
 client.pragma('journal_mode = WAL');
 const db = drizzle(client, { schema });
 
-const migrationsFolder = path.resolve(
-	fileURLToPath(new URL('../../../../drizzle', import.meta.url))
-);
+const migrationsFolder = path.resolve(process.cwd(), 'drizzle');
 
 migrate(db, { migrationsFolder });
 

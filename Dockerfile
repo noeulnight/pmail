@@ -21,6 +21,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
 COPY --from=build /app/build ./build
+COPY drizzle ./drizzle
 
 EXPOSE 3000
 ENV NODE_ENV=production \
