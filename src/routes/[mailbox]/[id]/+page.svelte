@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Archive, Trash2, Clock } from 'lucide-svelte';
+
 	type Message = {
 		id: string;
 		uid: number;
@@ -75,25 +77,43 @@
 <div class="flex h-full flex-col">
 	<div class="border-b border-white/8 p-4 sm:p-5">
 		<div class="flex flex-wrap items-center justify-between gap-3">
-			<div class="flex flex-wrap items-center gap-2">
-				<button
-					type="button"
-					class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06]"
-				>
-					Archive
-				</button>
-				<button
-					type="button"
-					class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06]"
-				>
-					Delete
-				</button>
-				<button
-					type="button"
-					class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06]"
-				>
-					Later
-				</button>
+			<div class="flex flex-wrap items-center gap-1">
+				<div class="group relative">
+					<button
+						type="button"
+						aria-label="Archive"
+						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
+					>
+						<Archive size={16} />
+					</button>
+					<span class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+						Archive
+					</span>
+				</div>
+				<div class="group relative">
+					<button
+						type="button"
+						aria-label="Delete"
+						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-rose-400"
+					>
+						<Trash2 size={16} />
+					</button>
+					<span class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+						Delete
+					</span>
+				</div>
+				<div class="group relative">
+					<button
+						type="button"
+						aria-label="Remind me later"
+						class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
+					>
+						<Clock size={16} />
+					</button>
+					<span class="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+						Remind me later
+					</span>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -153,12 +173,7 @@
 			class="w-full resize-none rounded-2xl border border-white/8 bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-sky-400/60"
 		></textarea>
 
-		<div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-			<label class="flex items-center gap-3 text-sm text-zinc-400">
-				<input bind:checked={mutedThread} type="checkbox" class="rounded" />
-				<span>Mute this thread</span>
-			</label>
-
+		<div class="mt-4 flex flex-wrap items-center justify-end gap-3">
 			<button
 				type="button"
 				class="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"

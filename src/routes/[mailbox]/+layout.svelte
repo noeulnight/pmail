@@ -412,18 +412,6 @@
 							{previewLabel(message.preview, message.textContent)}
 						</p>
 
-						<div class="mt-3 flex flex-wrap gap-2">
-							<span class="rounded-md bg-white/[0.06] px-2 py-1 text-[11px] font-medium text-zinc-300">
-								{isUnread(message.flags) ? 'unread' : 'read'}
-							</span>
-							{#if message.textContent}
-								<span
-									class="rounded-md bg-white/[0.06] px-2 py-1 text-[11px] font-medium text-zinc-300"
-								>
-									text
-								</span>
-							{/if}
-						</div>
 					</button>
 				{:else}
 					<div class="p-8 text-center">
