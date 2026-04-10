@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 
 	type Message = {
-		id: string;
+		id: number;
 		uid: number;
 		subject: string | null;
 		from: string | null;

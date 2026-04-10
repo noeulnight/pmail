@@ -1,9 +1,9 @@
 import { env } from '$env/dynamic/private';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { db } from '$lib/server/db';
-import { mailboxSync, mailMessage } from '$lib/server/db/schema';
+import { mailboxSync, mailMessage, mailMessageMailbox } from '$lib/server/db/schema';
 import { enqueueMarkRead, enqueueMoveMessage, registerImapConfig } from '$lib/server/imap-queue';
 
 type MailConfig = {
@@ -15,7 +15,21 @@ type MailConfig = {
 	pollSeconds: number;
 };
 
-export type MailRow = typeof mailMessage.$inferSelect;
+// Joined row returned by list/get queries
+export type MailRow = {
+	id: number;        // mail_message_mailbox.id
+	messageId: string;
+	mailbox: string;
+	uid: number;
+	flags: string;
+	subject: string;
+	from: string;
+	to: string;
+	preview: string;
+	textContent: string;
+	htmlContent: string | null;
+	receivedAt: Date | null;
+};
 
 export type SyncResult = {
 	mailbox: string;
@@ -81,7 +95,20 @@ function summarizeAddresses(input: unknown) {
 }
 
 function createPreview(text: string) {
-	return text.replace(/\s+/g, ' ').trim().slice(0, 240);
+	return text
+		.replace(/!\[.*?\]\(.*?\)/g, '') // images with src
+		.replace(/\[.*?\]\(.*?\)/g, '') // links
+		.replace(/\[https?:\/\/[^\]]*\]/g, '') // bare [url] blocks
+		.replace(/\[image:[^\]]*\]/gi, '') // [image: ...] alt text
+		.replace(/`{1,3}[^`]*`{1,3}/g, '') // code
+		.replace(/^#{1,6}\s+/gm, '') // headings
+		.replace(/(\*{1,3}|_{1,3})(.*?)\1/g, '$2') // bold/italic
+		.replace(/~~(.*?)~~/g, '$1') // strikethrough
+		.replace(/^\s*[-*+>]\s+/gm, '') // list items, blockquotes
+		.replace(/^\s*[-_*]{3,}\s*$/gm, '') // horizontal rules
+		.replace(/\s+/g, ' ')
+		.trim()
+		.slice(0, 240);
 }
 
 function dedupe(values: string[]) {
@@ -156,11 +183,10 @@ async function saveSyncState(mailbox: string, values: Partial<typeof mailboxSync
 		});
 }
 
-async function storeMessage(
-	mailbox: string,
+// Store or skip message content (skipped if message_id already exists)
+async function storeMessageContent(
+	effectiveMessageId: string,
 	message: Awaited<ReturnType<typeof simpleParser>>,
-	uid: number,
-	flags: string[],
 	internalDate?: Date
 ) {
 	const receivedAt = message.date ?? internalDate ?? null;
@@ -170,31 +196,39 @@ async function storeMessage(
 	await db
 		.insert(mailMessage)
 		.values({
-			mailbox,
-			uid,
-			messageId: message.messageId ?? null,
+			messageId: effectiveMessageId,
 			subject: message.subject?.trim() ?? '(no subject)',
 			from: summarizeAddresses(message.from),
 			to: summarizeAddresses(message.to),
 			preview: createPreview(textContent),
 			textContent,
 			htmlContent,
+			receivedAt
+		})
+		.onConflictDoNothing();
+}
+
+// Insert or update the per-mailbox entry for a message
+async function storeMailboxEntry(
+	effectiveMessageId: string,
+	mailbox: string,
+	uid: number,
+	flags: string[]
+) {
+	await db
+		.insert(mailMessageMailbox)
+		.values({
+			messageId: effectiveMessageId,
+			mailbox,
+			uid,
 			flags: JSON.stringify(flags),
-			receivedAt,
 			syncedAt: new Date()
 		})
 		.onConflictDoUpdate({
-			target: [mailMessage.mailbox, mailMessage.uid],
+			target: [mailMessageMailbox.mailbox, mailMessageMailbox.uid],
 			set: {
-				messageId: message.messageId ?? null,
-				subject: message.subject?.trim() ?? '(no subject)',
-				from: summarizeAddresses(message.from),
-				to: summarizeAddresses(message.to),
-				preview: createPreview(textContent),
-				textContent,
-				htmlContent,
+				messageId: effectiveMessageId,
 				flags: JSON.stringify(flags),
-				receivedAt,
 				syncedAt: new Date()
 			}
 		});
@@ -223,6 +257,7 @@ async function syncOneMailbox(
 	let fetchedCount = 0;
 	let storedCount = 0;
 
+	console.log(`[sync] ${mailboxPath}: starting`);
 	try {
 		await client.connect();
 		const lock = await client.getMailboxLock(mailboxPath);
@@ -231,14 +266,23 @@ async function syncOneMailbox(
 			const range = needsInitialBackfill ? '1:*' : `${nextLastUid + 1}:*`;
 			const fetchOptions = needsInitialBackfill ? undefined : { uid: true };
 
+			// Phase 1: fetch lightweight envelopes to discover message-ids
+			type EnvelopeItem = {
+				uid: number;
+				effectiveMessageId: string;
+				flags: string[];
+				internalDate: Date | undefined;
+			};
+			const envelopeItems: EnvelopeItem[] = [];
+
 			for await (const item of client.fetch(
 				range,
-				{ uid: true, source: true, flags: true, internalDate: true },
+				{ uid: true, envelope: true, flags: true, internalDate: true },
 				fetchOptions
 			)) {
-				if (!item.uid || !item.source) continue;
-
-				const parsed = await simpleParser(item.source);
+				if (!item.uid) continue;
+				const msgId = (item.envelope as { messageId?: string } | undefined)?.messageId?.trim();
+				const effectiveMessageId = msgId || `synthetic:${mailboxPath}:${item.uid}`;
 				const flags = Array.from(item.flags ?? []).map(String);
 				const internalDate =
 					item.internalDate instanceof Date
@@ -247,15 +291,63 @@ async function syncOneMailbox(
 							? new Date(item.internalDate)
 							: undefined;
 
-				await storeMessage(mailboxPath, parsed, item.uid, flags, internalDate);
-				fetchedCount += 1;
-				storedCount += 1;
+				envelopeItems.push({ uid: item.uid, effectiveMessageId, flags, internalDate });
 				nextLastUid = Math.max(nextLastUid, item.uid);
+				fetchedCount += 1;
+			}
+
+			if (envelopeItems.length === 0) {
+				console.log(`[sync] ${mailboxPath}: no new messages`);
+			} else {
+				// Phase 2: check which message-ids we already have content for
+				const allMessageIds = envelopeItems.map((i) => i.effectiveMessageId);
+				const existingIds = new Set(
+					(
+						await db
+							.select({ messageId: mailMessage.messageId })
+							.from(mailMessage)
+							.where(inArray(mailMessage.messageId, allMessageIds))
+					).map((r) => r.messageId)
+				);
+
+				// Phase 3: fetch full source only for messages we don't have yet
+				const needsSourceUids = envelopeItems
+					.filter((i) => !existingIds.has(i.effectiveMessageId))
+					.map((i) => i.uid);
+
+				const sourceByUid = new Map<number, Awaited<ReturnType<typeof simpleParser>>>();
+				if (needsSourceUids.length > 0) {
+					console.log(`[sync] ${mailboxPath}: fetching source for ${needsSourceUids.length}/${fetchedCount} messages (${fetchedCount - needsSourceUids.length} already cached)`);
+					for await (const item of client.fetch(
+						needsSourceUids.join(','),
+						{ uid: true, source: true },
+						{ uid: true }
+					)) {
+						if (!item.uid || !item.source) continue;
+						sourceByUid.set(item.uid, await simpleParser(item.source));
+					}
+				} else {
+					console.log(`[sync] ${mailboxPath}: all ${fetchedCount} messages already cached, updating mailbox entries only`);
+				}
+
+				// Store content + mailbox entries
+				for (const item of envelopeItems) {
+					const parsed = sourceByUid.get(item.uid);
+					if (parsed) {
+						await storeMessageContent(item.effectiveMessageId, parsed, item.internalDate);
+					}
+					await storeMailboxEntry(item.effectiveMessageId, mailboxPath, item.uid, item.flags);
+					storedCount += 1;
+					if (storedCount % 10 === 0) {
+						console.log(`[sync] ${mailboxPath}: stored ${storedCount}/${fetchedCount}...`);
+					}
+				}
 			}
 		} finally {
 			lock.release();
 		}
 
+		console.log(`[sync] ${mailboxPath}: done — ${fetchedCount} fetched, ${storedCount} stored`);
 		await saveSyncState(mailboxPath, {
 			lastUid: nextLastUid,
 			historyComplete: true,
@@ -265,6 +357,7 @@ async function syncOneMailbox(
 			lastError: null
 		});
 	} catch (error) {
+		console.error(`[sync] ${mailboxPath}: error — ${getErrorMessage(error)}`);
 		await saveSyncState(mailboxPath, {
 			lastUid: nextLastUid,
 			historyComplete,
@@ -423,21 +516,39 @@ export function listImapMailboxes(): ImapMailbox[] {
 	return cachedMailboxes ?? [];
 }
 
+const joinedSelect = {
+	id: mailMessageMailbox.id,
+	messageId: mailMessage.messageId,
+	mailbox: mailMessageMailbox.mailbox,
+	uid: mailMessageMailbox.uid,
+	flags: mailMessageMailbox.flags,
+	subject: mailMessage.subject,
+	from: mailMessage.from,
+	to: mailMessage.to,
+	preview: mailMessage.preview,
+	textContent: mailMessage.textContent,
+	htmlContent: mailMessage.htmlContent,
+	receivedAt: mailMessage.receivedAt
+};
+
 export async function listStoredMessages(mailboxPath: string, limit = 100, offset = 0) {
 	return db
-		.select()
-		.from(mailMessage)
-		.where(eq(mailMessage.mailbox, mailboxPath))
-		.orderBy(desc(mailMessage.receivedAt), desc(mailMessage.uid))
+		.select(joinedSelect)
+		.from(mailMessageMailbox)
+		.innerJoin(mailMessage, eq(mailMessageMailbox.messageId, mailMessage.messageId))
+		.where(eq(mailMessageMailbox.mailbox, mailboxPath))
+		.orderBy(desc(mailMessage.receivedAt), desc(mailMessageMailbox.uid))
 		.offset(offset)
 		.limit(limit);
 }
 
-export async function getStoredMessageById(id: string) {
+export async function getStoredMessageById(id: string | number): Promise<MailRow | null> {
+	const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
 	const [message] = await db
-		.select()
-		.from(mailMessage)
-		.where(eq(mailMessage.id, id))
+		.select(joinedSelect)
+		.from(mailMessageMailbox)
+		.innerJoin(mailMessage, eq(mailMessageMailbox.messageId, mailMessage.messageId))
+		.where(eq(mailMessageMailbox.id, numericId))
 		.limit(1);
 
 	return message ?? null;
@@ -451,9 +562,9 @@ export async function markMessageAsRead(message: MailRow) {
 	if (flags.includes('\\Seen')) return;
 
 	await db
-		.update(mailMessage)
+		.update(mailMessageMailbox)
 		.set({ flags: JSON.stringify([...flags, '\\Seen']) })
-		.where(eq(mailMessage.id, message.id));
+		.where(eq(mailMessageMailbox.id, message.id));
 
 	enqueueMarkRead(message.uid, message.mailbox);
 }
@@ -486,9 +597,9 @@ export async function moveMessage(message: MailRow, action: MessageAction): Prom
 
 	// Optimistically update DB: move message to target mailbox
 	await db
-		.update(mailMessage)
+		.update(mailMessageMailbox)
 		.set({ mailbox: targetMailbox })
-		.where(eq(mailMessage.id, message.id));
+		.where(eq(mailMessageMailbox.id, message.id));
 
 	enqueueMoveMessage(message.uid, message.mailbox, targetMailbox);
 	return targetMailbox;
