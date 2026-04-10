@@ -252,6 +252,8 @@
 
 	function startResize(e: PointerEvent) {
 		e.preventDefault();
+		const handle = e.currentTarget as HTMLElement;
+		handle.setPointerCapture(e.pointerId);
 		resizing = true;
 		const startX = e.clientX;
 		const startWidth = listWidth;
@@ -260,15 +262,17 @@
 			listWidth = Math.max(240, Math.min(700, startWidth + (ev.clientX - startX)));
 		}
 
-		function onUp() {
+		function stop() {
 			resizing = false;
 			localStorage.setItem('mail:listWidth', String(listWidth));
-			window.removeEventListener('pointermove', onMove);
-			window.removeEventListener('pointerup', onUp);
+			handle.removeEventListener('pointermove', onMove);
+			handle.removeEventListener('pointerup', stop);
+			handle.removeEventListener('pointercancel', stop);
 		}
 
-		window.addEventListener('pointermove', onMove);
-		window.addEventListener('pointerup', onUp);
+		handle.addEventListener('pointermove', onMove);
+		handle.addEventListener('pointerup', stop);
+		handle.addEventListener('pointercancel', stop);
 	}
 </script>
 
