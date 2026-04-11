@@ -11,7 +11,8 @@
 		Archive,
 		Folder,
 		Pencil,
-		Settings
+		Settings,
+		RefreshCw
 	} from 'lucide-svelte';
 	import type { Component } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -70,6 +71,7 @@
 	let resizing = $state(false);
 	let ready = $state(false);
 	let sync = $state<SyncStatus | null>(null);
+	let refreshing = $state(false);
 
 	function formatRelative(isoString: string): string {
 		const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
@@ -86,6 +88,14 @@
 		} catch {
 			// ignore
 		}
+	}
+
+	async function handleRefresh() {
+		if (refreshing) return;
+		refreshing = true;
+		await fetchSyncStatus();
+		await new Promise((r) => setTimeout(r, 600));
+		refreshing = false;
 	}
 
 	onMount(() => {
@@ -215,6 +225,14 @@
 									{sync.lastSyncedAt ? formatRelative(sync.lastSyncedAt) : 'Never synced'}
 								</span>
 							{/if}
+							<button
+								type="button"
+								onclick={handleRefresh}
+								class={['ml-auto transition', refreshing ? 'animate-spin text-zinc-400' : 'text-zinc-600 hover:text-zinc-400']}
+								title="Refresh"
+							>
+								<RefreshCw size={11} />
+							</button>
 						</div>
 					{/if}
 

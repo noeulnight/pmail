@@ -4,6 +4,7 @@
 	import { pathToSlug } from '$lib/mailbox';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import { RefreshCw } from 'lucide-svelte';
 
 	type SyncData = {
 		mailbox: string;
@@ -256,6 +257,15 @@
 
 	let listWidth = $state(readStorage('mail:listWidth', 440));
 	let resizing = $state(false);
+	let refreshing = $state(false);
+
+	async function handleRefresh() {
+		if (refreshing) return;
+		refreshing = true;
+		await invalidateAll();
+		await new Promise((r) => setTimeout(r, 600));
+		refreshing = false;
+	}
 
 	function startResize(e: PointerEvent) {
 		e.preventDefault();
@@ -295,27 +305,37 @@
 		<div class="border-b border-white/8 p-4 sm:p-5">
 			<div class="flex items-center justify-between gap-3">
 				<h1 class="text-2xl font-semibold tracking-tight text-white">{folderDisplayName}</h1>
-				<div class="rounded-xl border border-white/8 bg-white/[0.03] p-1 text-sm">
+				<div class="flex items-center gap-2">
 					<button
 						type="button"
-						class={[
-							'rounded-lg px-3 py-1.5 transition',
-							activeFilter === 'all' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
-						]}
-						onclick={() => (activeFilter = 'all')}
+						onclick={handleRefresh}
+						class={['transition', refreshing ? 'animate-spin text-zinc-400' : 'text-zinc-600 hover:text-zinc-400']}
+						title="Refresh"
 					>
-						All mail
+						<RefreshCw size={15} />
 					</button>
-					<button
-						type="button"
-						class={[
-							'rounded-lg px-3 py-1.5 transition',
-							activeFilter === 'unread' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
-						]}
-						onclick={() => (activeFilter = 'unread')}
-					>
-						Unread
-					</button>
+					<div class="rounded-xl border border-white/8 bg-white/[0.03] p-1 text-sm">
+						<button
+							type="button"
+							class={[
+								'rounded-lg px-3 py-1.5 transition',
+								activeFilter === 'all' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
+							]}
+							onclick={() => (activeFilter = 'all')}
+						>
+							All mail
+						</button>
+						<button
+							type="button"
+							class={[
+								'rounded-lg px-3 py-1.5 transition',
+								activeFilter === 'unread' ? 'bg-white/[0.08] text-white' : 'text-zinc-400'
+							]}
+							onclick={() => (activeFilter = 'unread')}
+						>
+							Unread
+						</button>
+					</div>
 				</div>
 			</div>
 
