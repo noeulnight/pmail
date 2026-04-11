@@ -11,9 +11,23 @@ export type ComposerMessage = {
 	receivedAt: string | null;
 };
 
-export const composer = $state({
+type ComposerState = {
+	open: boolean;
+	minimized: boolean;
+	fullscreen: boolean;
+	mode: ComposerMode;
+	to: string;
+	cc: string;
+	bcc: string;
+	subject: string;
+	initialHtml: string;
+	inReplyTo: string | null;
+};
+
+export const composer = $state<ComposerState>({
 	open: false,
 	minimized: false,
+	fullscreen: false,
 	mode: 'compose' as ComposerMode,
 	to: '',
 	cc: '',
@@ -82,6 +96,7 @@ export function openCompose() {
 	composer.initialHtml = '';
 	composer.inReplyTo = null;
 	composer.minimized = false;
+	composer.fullscreen = false;
 	composer.open = true;
 }
 
@@ -94,6 +109,7 @@ export function openReply(msg: ComposerMessage) {
 	composer.initialHtml = buildReplyQuote(msg);
 	composer.inReplyTo = null;
 	composer.minimized = false;
+	composer.fullscreen = false;
 	composer.open = true;
 }
 
@@ -111,6 +127,7 @@ export function openReplyAll(msg: ComposerMessage) {
 	composer.initialHtml = buildReplyQuote(msg);
 	composer.inReplyTo = null;
 	composer.minimized = false;
+	composer.fullscreen = false;
 	composer.open = true;
 }
 
@@ -123,9 +140,11 @@ export function openForward(msg: ComposerMessage) {
 	composer.initialHtml = buildForwardBody(msg);
 	composer.inReplyTo = null;
 	composer.minimized = false;
+	composer.fullscreen = false;
 	composer.open = true;
 }
 
 export function closeComposer() {
+	composer.fullscreen = false;
 	composer.open = false;
 }

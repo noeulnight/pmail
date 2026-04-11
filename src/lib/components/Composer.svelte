@@ -7,6 +7,7 @@
 	import {
 		X,
 		Minus,
+		Minimize2,
 		Maximize2,
 		Send,
 		Bold,
@@ -76,13 +77,11 @@
 	});
 
 	function isActive(name: string, attrs?: Record<string, unknown>) {
-		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 		editorTick; // reactive dependency
 		return editor?.isActive(name, attrs) ?? false;
 	}
 
 	function isAlignActive(align: string) {
-		// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 		editorTick; // reactive dependency
 		if (!editor) return false;
 		return (
@@ -154,6 +153,21 @@
 		closeComposer();
 	}
 
+	function toggleMinimized() {
+		if (composer.minimized) {
+			composer.minimized = false;
+			return;
+		}
+
+		composer.fullscreen = false;
+		composer.minimized = true;
+	}
+
+	function toggleFullscreen() {
+		composer.minimized = false;
+		composer.fullscreen = !composer.fullscreen;
+	}
+
 	function titleLabel() {
 		if (composer.mode === 'reply' || composer.mode === 'reply-all') return 'Reply';
 		if (composer.mode === 'forward') return 'Forward';
@@ -162,8 +176,16 @@
 </script>
 
 <div
-	class="fixed right-4 bottom-0 z-50 flex flex-col overflow-hidden rounded-t-xl border border-white/10 bg-[#18181c] shadow-2xl"
-	style="width: 580px; height: 520px; max-height: 90vh; display: {composer.open ? 'flex' : 'none'}"
+	class={[
+		'fixed z-50 flex flex-col overflow-hidden border border-white/10 bg-[#18181c] shadow-2xl',
+		composer.fullscreen
+			? 'inset-0 rounded-none sm:inset-4 sm:rounded-xl'
+			: 'right-4 bottom-0 rounded-t-xl'
+	]}
+	style:width={composer.fullscreen ? null : '580px'}
+	style:height={composer.fullscreen ? null : '520px'}
+	style:max-height={composer.fullscreen ? null : '90vh'}
+	style:display={composer.open ? 'flex' : 'none'}
 >
 	<!-- Title bar -->
 	<div class="flex shrink-0 items-center justify-between bg-[#1e1e24] px-4 py-3 select-none">
@@ -171,8 +193,20 @@
 		<div class="flex items-center gap-1">
 			<button
 				type="button"
+				aria-label={composer.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+				onclick={toggleFullscreen}
+				class="rounded p-1 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
+			>
+				{#if composer.fullscreen}
+					<Minimize2 size={14} />
+				{:else}
+					<Maximize2 size={14} />
+				{/if}
+			</button>
+			<button
+				type="button"
 				aria-label="Minimize"
-				onclick={() => (composer.minimized = !composer.minimized)}
+				onclick={toggleMinimized}
 				class="rounded p-1 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200"
 			>
 				{#if composer.minimized}
