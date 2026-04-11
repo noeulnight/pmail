@@ -372,6 +372,35 @@ export async function startMailboxSync() {
 	}
 }
 
+export async function getSyncSummary(): Promise<{
+	syncing: boolean;
+	configured: boolean;
+	hasError: boolean;
+	lastSyncedAt: string | null;
+	errorMessage: string | null;
+}> {
+	const config = await getImapConfig();
+	if ('missing' in config) {
+		return { syncing: false, configured: false, hasError: false, lastSyncedAt: null, errorMessage: null };
+	}
+
+	const rows = await db.select().from(mailboxSync);
+	const hasError = rows.some((r) => r.lastError);
+	const errorMessage = rows.find((r) => r.lastError)?.lastError ?? null;
+	const latest = rows.reduce<Date | null>((max, r) => {
+		if (!r.lastSyncedAt) return max;
+		return !max || r.lastSyncedAt > max ? r.lastSyncedAt : max;
+	}, null);
+
+	return {
+		syncing: activeSync !== null,
+		configured: true,
+		hasError,
+		lastSyncedAt: latest?.toISOString() ?? null,
+		errorMessage
+	};
+}
+
 export async function getMailboxSyncStatus(mailboxPath: string): Promise<SyncResult> {
 	const config = await getImapConfig();
 

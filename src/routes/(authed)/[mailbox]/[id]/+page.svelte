@@ -96,7 +96,8 @@
 
 	function injectScrollbarStyle(html: string): string {
 		const headClose = html.indexOf('</head>');
-		if (headClose !== -1) return html.slice(0, headClose) + SCROLLBAR_STYLE + BASE_TARGET + html.slice(headClose);
+		if (headClose !== -1)
+			return html.slice(0, headClose) + SCROLLBAR_STYLE + BASE_TARGET + html.slice(headClose);
 		return SCROLLBAR_STYLE + BASE_TARGET + html;
 	}
 
@@ -118,11 +119,13 @@
 							aria-label="Move to inbox"
 							disabled={acting}
 							onclick={() => performAction('inbox')}
-							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Archive size={16} />
 						</button>
-						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+						<span
+							class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs whitespace-nowrap text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							Move to inbox
 						</span>
 					</div>
@@ -133,11 +136,13 @@
 							aria-label="Restore"
 							disabled={acting}
 							onclick={() => performAction('inbox')}
-							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Trash2 size={16} />
 						</button>
-						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+						<span
+							class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							Restore
 						</span>
 					</div>
@@ -148,11 +153,13 @@
 							aria-label="Not spam"
 							disabled={acting}
 							onclick={() => performAction('inbox')}
-							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<ShieldAlert size={16} />
 						</button>
-						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+						<span
+							class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs whitespace-nowrap text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							Not spam
 						</span>
 					</div>
@@ -163,11 +170,13 @@
 							aria-label="Archive"
 							disabled={acting}
 							onclick={() => performAction('archive')}
-							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Archive size={16} />
 						</button>
-						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+						<span
+							class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							Archive
 						</span>
 					</div>
@@ -177,11 +186,13 @@
 							aria-label="Delete"
 							disabled={acting}
 							onclick={() => performAction('trash')}
-							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Trash2 size={16} />
 						</button>
-						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+						<span
+							class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							Delete
 						</span>
 					</div>
@@ -191,11 +202,13 @@
 							aria-label="Move to spam"
 							disabled={acting}
 							onclick={() => performAction('spam')}
-							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
+							class="rounded-lg border border-white/8 bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.06] hover:text-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<ShieldAlert size={16} />
 						</button>
-						<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+						<span
+							class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs whitespace-nowrap text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							Move to spam
 						</span>
 					</div>
@@ -212,7 +225,9 @@
 					>
 						<Reply size={16} />
 					</button>
-					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+					<span
+						class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+					>
 						Reply
 					</span>
 				</div>
@@ -225,7 +240,9 @@
 					>
 						<ReplyAll size={16} />
 					</button>
-					<span class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+					<span
+						class="pointer-events-none absolute top-full left-1/2 mt-2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs whitespace-nowrap text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+					>
 						Reply all
 					</span>
 				</div>
@@ -238,7 +255,9 @@
 					>
 						<Forward size={16} />
 					</button>
-					<span class="pointer-events-none absolute top-full right-0 mt-2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100">
+					<span
+						class="pointer-events-none absolute top-full right-0 mt-2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+					>
 						Forward
 					</span>
 				</div>
@@ -275,22 +294,21 @@
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
-			{#if srcdoc}
-				<iframe
-					title={`Email body for ${subjectLabel(message.subject)}`}
-					sandbox="allow-popups"
-					{srcdoc}
-					class="block h-full w-full bg-white"
-				></iframe>
-			{:else}
+		{#if srcdoc}
+			<iframe
+				title={`Email body for ${subjectLabel(message.subject)}`}
+				sandbox="allow-popups"
+				{srcdoc}
+				class="block h-full w-full bg-white p-3"
+			></iframe>
+		{:else}
 			<div class="space-y-6 p-4 text-[15px] leading-8 text-zinc-200">
-			{#each bodyText(message)
-				.split(/\n{2,}/)
-				.filter(Boolean) as paragraph, index (`${message.id}-${index}`)}
-				<p>{paragraph}</p>
+				{#each bodyText(message)
+					.split(/\n{2,}/)
+					.filter(Boolean) as paragraph, index (`${message.id}-${index}`)}
+					<p>{paragraph}</p>
 				{/each}
 			</div>
 		{/if}
 	</div>
-
 </div>

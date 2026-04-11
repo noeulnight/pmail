@@ -8,14 +8,16 @@
 	import Composer from '$lib/components/Composer.svelte';
 	import { openCompose } from '$lib/composer.svelte';
 
-	type ImapMailbox = {
-		path: string;
-		name: string;
-		delimiter: string;
+	type ImapMailbox = { path: string; name: string; delimiter: string };
+	type SyncStatus = {
+		syncing: boolean;
+		configured: boolean;
+		hasError: boolean;
+		lastSyncedAt: string | null;
+		errorMessage: string | null;
 	};
-
 	type Props = {
-		data: { imapMailboxes: ImapMailbox[] };
+		data: { imapMailboxes: ImapMailbox[]; user: { name: string; email: string } | null };
 		children: import('svelte').Snippet;
 	};
 
@@ -56,9 +58,30 @@
 	let sidebarWidth = $state(readStorage('mail:sidebarWidth', 260));
 	let resizing = $state(false);
 	let ready = $state(false);
+	let sync = $state<SyncStatus | null>(null);
+
+	function formatRelative(isoString: string): string {
+		const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+		if (diff < 60) return 'just now';
+		if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+		if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+		return `${Math.floor(diff / 86400)}d ago`;
+	}
+
+	async function fetchSyncStatus() {
+		try {
+			const res = await fetch('/api/sync-status');
+			if (res.ok) sync = await res.json();
+		} catch {
+			// ignore
+		}
+	}
 
 	onMount(() => {
 		ready = true;
+		void fetchSyncStatus();
+		const interval = setInterval(fetchSyncStatus, 5000);
+		return () => clearInterval(interval);
 	});
 
 	function startResize(e: PointerEvent) {
@@ -85,6 +108,16 @@
 		handle.addEventListener('pointerup', stop);
 		handle.addEventListener('pointercancel', stop);
 	}
+
+	const userInitials = $derived(() => {
+		const name = data.user?.name ?? data.user?.email ?? '?';
+		return name
+			.split(/\s+/)
+			.map((w) => w[0])
+			.join('')
+			.slice(0, 2)
+			.toUpperCase();
+	});
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -96,7 +129,7 @@
 	style="opacity: {ready ? 1 : 0}"
 >
 	<aside style="width: {sidebarWidth}px; min-width: {sidebarWidth}px" class="flex flex-col bg-[#0a0a0d]">
-		<div class="flex flex-1 flex-col p-3 sm:p-4">
+		<div class="flex flex-1 flex-col overflow-hidden p-3 sm:p-4">
 			<div class="mb-3 px-1">
 				<button
 					type="button"
@@ -108,7 +141,7 @@
 				</button>
 			</div>
 			<p class="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-widest text-zinc-500">Mail</p>
-			<nav class="space-y-1.5">
+			<nav class="space-y-1.5 overflow-y-auto">
 				{#each mailboxes as mb (mb.slug)}
 					<a
 						href="/{mb.slug}"
@@ -124,7 +157,8 @@
 					</a>
 				{/each}
 			</nav>
-			<div class="mt-auto pt-4">
+
+			<div class="mt-auto space-y-1 pt-4">
 				<a
 					href="/settings"
 					class={[
@@ -137,6 +171,45 @@
 					<Settings size={15} />
 					Settings
 				</a>
+
+				<!-- Footer -->
+				<div class="border-t border-white/6 pt-3">
+					<!-- Sync status -->
+					{#if sync}
+						<div class="mb-2.5 flex items-center gap-2 px-3">
+							{#if !sync.configured}
+								<span class="h-1.5 w-1.5 rounded-full bg-zinc-600"></span>
+								<span class="text-xs text-zinc-600">Mail not configured</span>
+							{:else if sync.hasError}
+								<span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+								<span class="truncate text-xs text-red-400" title={sync.errorMessage ?? ''}>Sync error</span>
+							{:else if sync.syncing}
+								<span class="relative flex h-1.5 w-1.5">
+									<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+									<span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+								</span>
+								<span class="text-xs text-zinc-500">Syncing…</span>
+							{:else}
+								<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+								<span class="text-xs text-zinc-600">
+									{sync.lastSyncedAt ? formatRelative(sync.lastSyncedAt) : 'Never synced'}
+								</span>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- User -->
+					{#if data.user}
+						<div class="flex items-center gap-2.5 px-3 py-1">
+							<div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-700 text-[10px] font-semibold text-zinc-300">
+								{userInitials()}
+							</div>
+							<div class="min-w-0">
+								<p class="truncate text-xs font-medium text-zinc-400">{data.user.name || data.user.email}</p>
+							</div>
+						</div>
+					{/if}
+				</div>
 			</div>
 		</div>
 	</aside>
