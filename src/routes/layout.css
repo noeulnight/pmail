@@ -2,28 +2,28 @@
 
 button,
 a {
-	cursor: pointer;
+  cursor: pointer;
 }
 
 * {
-	scrollbar-width: thin;
-	scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
 
 *::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
-	background: transparent;
+  background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
-	background: rgba(255, 255, 255, 0.12);
-	border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-	background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.22);
 }
