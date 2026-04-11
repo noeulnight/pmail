@@ -1,19 +1,10 @@
-import { env } from '$env/dynamic/private';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { db } from '$lib/server/db';
 import { mailboxSync, mailMessage, mailMessageMailbox } from '$lib/server/db/schema';
 import { enqueueMarkRead, enqueueMoveMessage, registerImapConfig } from '$lib/server/imap-queue';
-
-type MailConfig = {
-	host: string;
-	port: number;
-	secure: boolean;
-	user: string;
-	password: string;
-	pollSeconds: number;
-};
+import { getImapConfig, type ImapConfig } from '$lib/server/config';
 
 // Joined row returned by list/get queries
 export type MailRow = {
@@ -45,45 +36,11 @@ export type SyncResult = {
 
 let activeSync: Promise<void> | null = null;
 
-registerImapConfig(() => {
-	const config = getConfig();
+registerImapConfig(async () => {
+	const config = await getImapConfig();
 	if ('missing' in config) return null;
 	return { host: config.host, port: config.port, secure: config.secure, user: config.user, password: config.password };
 });
-
-function parseBoolean(value: string | undefined, fallback: boolean) {
-	if (value == null || value === '') return fallback;
-	return value.toLowerCase() !== 'false';
-}
-
-function parseNumber(value: string | undefined, fallback: number) {
-	const parsed = Number(value);
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function getConfig(): MailConfig | { missing: string[] } {
-	const required = {
-		IMAP_HOST: env.IMAP_HOST,
-		IMAP_USER: env.IMAP_USER,
-		IMAP_PASSWORD: env.IMAP_PASSWORD
-	};
-	const missing = Object.entries(required)
-		.filter(([, value]) => !value)
-		.map(([key]) => key);
-
-	if (missing.length > 0) {
-		return { missing };
-	}
-
-	return {
-		host: env.IMAP_HOST!,
-		port: parseNumber(env.IMAP_PORT, 993),
-		secure: parseBoolean(env.IMAP_SECURE, true),
-		user: env.IMAP_USER!,
-		password: env.IMAP_PASSWORD!,
-		pollSeconds: parseNumber(env.IMAP_POLL_SECONDS, 15)
-	};
-}
 
 function summarizeAddresses(input: unknown) {
 	if (!input || typeof input !== 'object' || !('value' in input)) return '';
@@ -235,7 +192,7 @@ async function storeMailboxEntry(
 }
 
 async function syncOneMailbox(
-	config: MailConfig,
+	config: ImapConfig,
 	mailboxPath: string,
 	pollMs: number
 ): Promise<void> {
@@ -371,7 +328,7 @@ async function syncOneMailbox(
 	}
 }
 
-async function runSyncAll(config: MailConfig): Promise<void> {
+async function runSyncAll(config: ImapConfig): Promise<void> {
 	// Use a single connection just to list mailboxes
 	const listClient = new ImapFlow({
 		host: config.host,
@@ -402,10 +359,10 @@ async function runSyncAll(config: MailConfig): Promise<void> {
 	}
 }
 
-export function startMailboxSync() {
+export async function startMailboxSync() {
 	startMailboxCacheRefresh();
 
-	const config = getConfig();
+	const config = await getImapConfig();
 	if ('missing' in config) return;
 
 	if (!activeSync) {
@@ -416,7 +373,7 @@ export function startMailboxSync() {
 }
 
 export async function getMailboxSyncStatus(mailboxPath: string): Promise<SyncResult> {
-	const config = getConfig();
+	const config = await getImapConfig();
 
 	if ('missing' in config) {
 		return {
@@ -482,7 +439,7 @@ const MAILBOX_REFRESH_MS = 10 * 60 * 1000;
 let mailboxRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
 async function refreshMailboxCache(): Promise<void> {
-	const config = getConfig();
+	const config = await getImapConfig();
 	if ('missing' in config) return;
 
 	const client = new ImapFlow({
@@ -557,7 +514,7 @@ export async function getStoredMessageById(id: string | number): Promise<MailRow
 }
 
 export async function markMessageAsRead(message: MailRow) {
-	const config = getConfig();
+	const config = await getImapConfig();
 	if ('missing' in config) return;
 
 	const flags: string[] = JSON.parse(message.flags);

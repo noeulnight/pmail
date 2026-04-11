@@ -25,9 +25,9 @@ type ImapJob = MarkReadJob | MoveJob;
 
 const queue: ImapJob[] = [];
 let workerRunning = false;
-let configResolver: (() => MailConfig | null) | null = null;
+let configResolver: (() => Promise<MailConfig | null> | MailConfig | null) | null = null;
 
-export function registerImapConfig(resolver: () => MailConfig | null) {
+export function registerImapConfig(resolver: () => Promise<MailConfig | null> | MailConfig | null) {
 	configResolver = resolver;
 }
 
@@ -64,7 +64,7 @@ async function runWorker() {
 }
 
 async function flushQueue() {
-	const config = configResolver?.();
+	const config = await configResolver?.();
 	if (!config) {
 		queue.length = 0;
 		return;

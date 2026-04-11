@@ -1,12 +1,12 @@
 import { json, error } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
+import type { RequestHandler } from './$types';
 import nodemailer from 'nodemailer';
+import { getSmtpConfig } from '$lib/server/config';
 
-export async function POST({ request }) {
-	const required = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD'];
-	const missing = required.filter((k) => !env[k]);
-	if (missing.length) {
-		return error(500, `Missing SMTP config: ${missing.join(', ')}`);
+export const POST: RequestHandler = async ({ request }) => {
+	const smtpConfig = await getSmtpConfig();
+	if ('missing' in smtpConfig) {
+		return error(500, `Missing SMTP config: ${smtpConfig.missing.join(', ')}`);
 	}
 
 	const { to, cc, bcc, subject, html, inReplyTo } = await request.json();
@@ -15,18 +15,18 @@ export async function POST({ request }) {
 	}
 
 	const transporter = nodemailer.createTransport({
-		host: env.SMTP_HOST,
-		port: Number(env.SMTP_PORT ?? 587),
-		secure: env.SMTP_SECURE === 'true',
+		host: smtpConfig.host,
+		port: smtpConfig.port,
+		secure: smtpConfig.secure,
 		auth: {
-			user: env.SMTP_USER,
-			pass: env.SMTP_PASSWORD
+			user: smtpConfig.user,
+			pass: smtpConfig.password
 		}
 	});
 
 	try {
 		await transporter.sendMail({
-			from: env.SMTP_FROM || env.SMTP_USER,
+			from: smtpConfig.from,
 			to,
 			cc: cc || undefined,
 			bcc: bcc || undefined,

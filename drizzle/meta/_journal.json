@@ -64,6 +64,13 @@
 			"when": 1744315208000,
 			"tag": "0008_mail_message_normalize",
 			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "7",
+			"when": 1744315209000,
+			"tag": "0009_mail_config",
+			"breakpoints": true
 		}
 	]
 }

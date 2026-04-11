@@ -1,5 +1,25 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
+// Stores IMAP and SMTP configuration (single row, id=1).
+// Values here take priority over environment variables.
+export const mailConfig = sqliteTable('mail_config', {
+	id: integer('id').primaryKey().default(1),
+	imapHost: text('imap_host'),
+	imapPort: integer('imap_port'),
+	imapSecure: integer('imap_secure', { mode: 'boolean' }),
+	imapUser: text('imap_user'),
+	imapPassword: text('imap_password'),
+	imapMailbox: text('imap_mailbox'),
+	imapPollSeconds: integer('imap_poll_seconds'),
+	smtpHost: text('smtp_host'),
+	smtpPort: integer('smtp_port'),
+	smtpSecure: integer('smtp_secure', { mode: 'boolean' }),
+	smtpUser: text('smtp_user'),
+	smtpPassword: text('smtp_password'),
+	smtpFrom: text('smtp_from'),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+});
+
 export const task = sqliteTable('task', {
 	id: text('id')
 		.primaryKey()

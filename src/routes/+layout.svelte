@@ -3,7 +3,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import { Inbox, Send, FileText, Trash2, ArchiveX, Archive, Folder, Pencil } from 'lucide-svelte';
+	import { Inbox, Send, FileText, Trash2, ArchiveX, Archive, Folder, Pencil, Settings } from 'lucide-svelte';
 	import type { Component } from 'svelte';
 	import { pathToSlug } from '$lib/mailbox';
 	import Composer from '$lib/components/Composer.svelte';
@@ -97,7 +97,7 @@
 	style="opacity: {ready ? 1 : 0}"
 >
 	<aside style="width: {sidebarWidth}px; min-width: {sidebarWidth}px" class="flex flex-col bg-[#0a0a0d]">
-		<div class="p-3 sm:p-4">
+		<div class="flex flex-1 flex-col p-3 sm:p-4">
 			<div class="mb-3 px-1">
 				<button
 					type="button"
@@ -125,6 +125,20 @@
 					</a>
 				{/each}
 			</nav>
+			<div class="mt-auto pt-4">
+				<a
+					href="/settings"
+					class={[
+						'flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition',
+						page.url.pathname === '/settings'
+							? 'bg-white/[0.08] font-medium text-white'
+							: 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
+					]}
+				>
+					<Settings size={15} />
+					Settings
+				</a>
+			</div>
 		</div>
 	</aside>
 
