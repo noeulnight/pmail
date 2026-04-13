@@ -1,5 +1,6 @@
 import type { Handle } from '@sveltejs/kit'
 import { redirect } from '@sveltejs/kit'
+import { sequence } from '@sveltejs/kit/hooks'
 import { building } from '$app/environment'
 import { getAuth } from '$lib/server/auth'
 import { isOidcConfigured } from '$lib/server/config'
@@ -45,4 +46,17 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
   return svelteKitHandler({ event, resolve, auth, building })
 }
 
-export const handle: Handle = handleBetterAuth
+const handleTraffic: Handle = async ({ event, resolve }) => {
+  const start = Date.now()
+  const { method } = event.request
+  const path = event.url.pathname + (event.url.search || '')
+
+  const response = await resolve(event)
+
+  const ms = Date.now() - start
+  console.log(`[traffic] ${method} ${path} ${response.status} ${ms}ms`)
+
+  return response
+}
+
+export const handle: Handle = sequence(handleTraffic, handleBetterAuth)
