@@ -118,13 +118,13 @@
 }
 </style>`
 
-  const BASE_TARGET = '<base target="_blank" rel="noopener noreferrer">'
+  const LINK_SCRIPT = `<script>document.addEventListener('click',function(e){var a=e.target.closest('a');if(a&&a.href&&a.protocol!=='javascript:'){e.preventDefault();window.open(a.href,'_blank','noopener,noreferrer');}});<\/script>`
 
   function injectScrollbarStyle(html: string): string {
     const headClose = html.indexOf('</head>')
     if (headClose !== -1)
-      return html.slice(0, headClose) + SCROLLBAR_STYLE + BASE_TARGET + html.slice(headClose)
-    return SCROLLBAR_STYLE + BASE_TARGET + html
+      return html.slice(0, headClose) + SCROLLBAR_STYLE + LINK_SCRIPT + html.slice(headClose)
+    return SCROLLBAR_STYLE + LINK_SCRIPT + html
   }
 
   const srcdoc = $derived(message.htmlContent ? injectScrollbarStyle(message.htmlContent) : null)
@@ -343,7 +343,7 @@
     {#if srcdoc}
       <iframe
         title={`Email body for ${subjectLabel(message.subject)}`}
-        sandbox="allow-popups"
+        sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts"
         {srcdoc}
         class="block h-full w-full bg-white"
       ></iframe>
