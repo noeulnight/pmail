@@ -4,6 +4,7 @@ import { db } from '$lib/server/db'
 import { mailConfig } from '$lib/server/db/schema'
 import { invalidateConfigCache, isOidcConfigured } from '$lib/server/config'
 import { invalidateAuth } from '$lib/server/auth'
+import { startMailboxSync } from '$lib/server/mail'
 import { env } from '$env/dynamic/private'
 
 export const load: PageServerLoad = async () => {
@@ -72,6 +73,7 @@ export const actions: Actions = {
 
     invalidateConfigCache()
     invalidateAuth()
+    void startMailboxSync()
 
     redirect(302, '/login')
   }

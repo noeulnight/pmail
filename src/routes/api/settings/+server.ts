@@ -4,6 +4,7 @@ import { db } from '$lib/server/db'
 import { mailConfig } from '$lib/server/db/schema'
 import { getDisplayConfig, invalidateConfigCache } from '$lib/server/config'
 import { invalidateAuth } from '$lib/server/auth'
+import { startMailboxSync } from '$lib/server/mail'
 
 export const GET: RequestHandler = async () => {
   const config = await getDisplayConfig()
@@ -70,6 +71,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
     invalidateConfigCache()
     invalidateAuth()
+    void startMailboxSync()
     return json({ success: true })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
