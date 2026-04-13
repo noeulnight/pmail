@@ -1,7 +1,7 @@
 import { desc, eq, inArray, sql } from 'drizzle-orm'
 import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
-import { db } from '$lib/server/db'
+import { db, client as sqliteClient } from '$lib/server/db'
 import { mailboxSync, mailMessage, mailMessageMailbox } from '$lib/server/db/schema'
 import { enqueueMarkRead, enqueueMoveMessage, registerImapConfig } from '$lib/server/imap-queue'
 import { getImapConfig, type ImapConfig } from '$lib/server/config'
@@ -33,6 +33,11 @@ export type SyncResult = {
   lastError: string | null
   reason?: string
 }
+
+// Yield control back to the Node.js event loop so HTTP requests can be served
+// between sync chunks. better-sqlite3 is synchronous and blocks the event loop,
+// so without explicit yields the server becomes unresponsive during sync.
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 let activeSync: Promise<void> | null = null
 let syncTimer: ReturnType<typeof setInterval> | null = null
@@ -319,17 +324,43 @@ async function syncOneMailbox(
         }
 
         // Phase 3a: update mailbox entries for already-cached messages
+        // Written in chunks with event-loop yields between them so the HTTP
+        // server stays responsive. Each chunk runs in a single transaction for
+        // speed (one disk sync per chunk instead of one per row).
         if (cachedItems.length > 0) {
+          const CHUNK_SIZE = 200
           console.log(`[sync] ${mailboxPath}: updating ${cachedItems.length} cached mailbox entries...`)
-          for (const item of cachedItems) {
-            await storeMailboxEntry(item.effectiveMessageId, mailboxPath, item.uid, item.flags)
-            storedCount += 1
+          for (let ci = 0; ci < cachedItems.length; ci += CHUNK_SIZE) {
+            const chunk = cachedItems.slice(ci, ci + CHUNK_SIZE)
+            sqliteClient.transaction(() => {
+              for (const item of chunk) {
+                db.insert(mailMessageMailbox)
+                  .values({
+                    messageId: item.effectiveMessageId,
+                    mailbox: mailboxPath,
+                    uid: item.uid,
+                    flags: JSON.stringify(item.flags),
+                    syncedAt: new Date()
+                  })
+                  .onConflictDoUpdate({
+                    target: [mailMessageMailbox.mailbox, mailMessageMailbox.uid],
+                    set: {
+                      messageId: item.effectiveMessageId,
+                      flags: JSON.stringify(item.flags),
+                      syncedAt: new Date()
+                    }
+                  })
+                  .run()
+              }
+            })()
+            storedCount += chunk.length
             if (activeSyncProgress) activeSyncProgress.stored = storedCount
             if (storedCount % 500 === 0) {
               console.log(
                 `[sync] ${mailboxPath}: updated ${storedCount}/${fetchedCount} entries (${elapsed()})`
               )
             }
+            await yieldToEventLoop()
           }
           console.log(
             `[sync] ${mailboxPath}: cached entries updated (${elapsed()})`
@@ -365,6 +396,8 @@ async function syncOneMailbox(
                 )
               }
             }
+            // Yield between batches so HTTP requests can be served
+            await yieldToEventLoop()
           }
         }
       }

@@ -18,4 +18,4 @@ const migrationsFolder = path.resolve(process.cwd(), 'drizzle')
 
 migrate(db, { migrationsFolder })
 
-export { db }
+export { db, client }
