@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Archive, Trash2, ShieldAlert, Reply, ReplyAll, Forward } from 'lucide-svelte'
+  import { Archive, Trash2, ShieldAlert, Reply, ReplyAll, Forward, Share2, Check } from 'lucide-svelte'
   import { goto, invalidateAll } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { page } from '$app/state'
@@ -27,6 +27,28 @@
   const role = $derived(data.mailboxRole)
 
   let acting = $state(false)
+  let sharing = $state(false)
+  let shareCopied = $state(false)
+
+  async function shareMessage() {
+    if (sharing) return
+    sharing = true
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: data.message.id })
+      })
+      if (res.ok) {
+        const { url } = await res.json()
+        await navigator.clipboard.writeText(url)
+        shareCopied = true
+        setTimeout(() => { shareCopied = false }, 2000)
+      }
+    } finally {
+      sharing = false
+    }
+  }
 
   async function performAction(action: 'archive' | 'trash' | 'spam' | 'inbox') {
     if (acting) return
@@ -263,6 +285,26 @@
             class="pointer-events-none absolute top-full right-0 mt-2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
           >
             Forward
+          </span>
+        </div>
+        <div class="group relative">
+          <button
+            type="button"
+            aria-label="Share"
+            disabled={sharing}
+            onclick={shareMessage}
+            class="rounded-lg border border-white/8 bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {#if shareCopied}
+              <Check size={16} class="text-emerald-400" />
+            {:else}
+              <Share2 size={16} />
+            {/if}
+          </button>
+          <span
+            class="pointer-events-none absolute top-full right-0 mt-2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100"
+          >
+            {shareCopied ? 'Copied!' : 'Share'}
           </span>
         </div>
       </div>

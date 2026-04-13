@@ -22,7 +22,7 @@ if (!building) {
 }
 
 const SETUP_PATHS = ['/setup']
-const AUTH_PATHS = ['/login', '/api/auth']
+const AUTH_PATHS = ['/login', '/api/auth', '/share']
 
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
   const path = event.url.pathname

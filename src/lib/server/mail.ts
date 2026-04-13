@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import { desc, eq, inArray, sql } from 'drizzle-orm'
 import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
 import { db, client as sqliteClient } from '$lib/server/db'
-import { mailboxSync, mailMessage, mailMessageMailbox } from '$lib/server/db/schema'
+import { mailboxSync, mailMessage, mailMessageMailbox, mailShare } from '$lib/server/db/schema'
 import { enqueueMarkRead, enqueueMoveMessage, registerImapConfig } from '$lib/server/imap-queue'
 import { getImapConfig, type ImapConfig } from '$lib/server/config'
 import { withRetry } from '$lib/server/retry'
@@ -784,6 +785,40 @@ function findMailboxForAction(action: MessageAction): string | null {
   const mailboxes = cachedMailboxes ?? []
   const pattern = ROLE_PATTERNS[action]
   return mailboxes.find((mb) => pattern.test(mb.path) || pattern.test(mb.name))?.path ?? null
+}
+
+export async function createShareToken(mailboxEntryId: number): Promise<string | null> {
+  const [row] = await db
+    .select({ messageId: mailMessage.messageId })
+    .from(mailMessageMailbox)
+    .innerJoin(mailMessage, eq(mailMessageMailbox.messageId, mailMessage.messageId))
+    .where(eq(mailMessageMailbox.id, mailboxEntryId))
+    .limit(1)
+
+  if (!row) return null
+
+  const token = randomUUID()
+  await db.insert(mailShare).values({ token, messageId: row.messageId })
+  return token
+}
+
+export async function getMessageByShareToken(token: string): Promise<MailRow | null> {
+  const [share] = await db
+    .select()
+    .from(mailShare)
+    .where(eq(mailShare.token, token))
+    .limit(1)
+
+  if (!share) return null
+
+  const [message] = await db
+    .select(joinedSelect)
+    .from(mailMessageMailbox)
+    .innerJoin(mailMessage, eq(mailMessageMailbox.messageId, mailMessage.messageId))
+    .where(eq(mailMessage.messageId, share.messageId))
+    .limit(1)
+
+  return message ?? null
 }
 
 export async function moveMessage(message: MailRow, action: MessageAction): Promise<string | null> {

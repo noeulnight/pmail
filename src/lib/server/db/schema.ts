@@ -65,4 +65,12 @@ export const mailMessageMailbox = sqliteTable(
   ]
 )
 
+export const mailShare = sqliteTable('mail_share', {
+  token: text('token').primaryKey(),
+  messageId: text('message_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .$defaultFn(() => new Date())
+})
+
 export * from './auth.schema'
