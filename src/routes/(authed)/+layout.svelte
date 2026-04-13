@@ -152,8 +152,6 @@
   }
 
   let faviconLinkEl: HTMLLinkElement | null = null
-  let originalTitle = ''
-
   function updateFaviconAndTitle(count: number) {
     // Update page title
     const base = document.title.replace(/^\(\d+\)\s*/, '')

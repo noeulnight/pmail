@@ -210,7 +210,7 @@ export function openDraft(draft: DraftRow) {
   composer.attachments = draft.attachments
   composer.inReplyTo = draft.inReplyTo
   composer.draftId = draft.id
-  composer.lastSavedAt = new Date(draft.updatedAt).getTime()
+  composer.lastSavedAt = Date.parse(draft.updatedAt)
   composer.minimized = false
   composer.fullscreen = false
   composer.open = true
