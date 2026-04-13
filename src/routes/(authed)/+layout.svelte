@@ -158,7 +158,7 @@
         <button
           type="button"
           onclick={openCompose}
-          class="flex w-full items-center gap-2 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
+          class="flex w-full items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
         >
           <Pencil size={14} />
           Compose
