@@ -20,6 +20,7 @@
   import { goto, invalidateAll } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { page } from '$app/state'
+  import { trackAppLoading } from '$lib/loading.svelte'
   import { onMount } from 'svelte'
   import { openReply, openReplyAll, openForward } from '$lib/composer.svelte'
   import { keyboard, setupKeyboardHandler } from '$lib/keyboard.svelte'
@@ -87,13 +88,15 @@
     if (acting) return
     acting = true
     try {
-      const res = await fetch(`/api/messages/${data.message.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
-      })
+      const res = await trackAppLoading(() =>
+        fetch(`/api/messages/${data.message.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        })
+      )
       if (res.ok) {
-        await invalidateAll()
+        await trackAppLoading(() => invalidateAll())
         await goto(resolve(`/${page.params.mailbox}`))
       }
     } finally {

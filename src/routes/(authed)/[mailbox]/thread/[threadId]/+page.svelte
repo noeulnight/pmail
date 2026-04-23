@@ -13,6 +13,7 @@
   import { goto, invalidateAll } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { page } from '$app/state'
+  import { trackAppLoading } from '$lib/loading.svelte'
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { openReply, openReplyAll } from '$lib/composer.svelte'
@@ -70,12 +71,15 @@
     acting = true
     try {
       const ids = messages.map((m) => m.id)
-      await fetch('/api/messages/bulk', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ids, action })
+      await trackAppLoading(async () => {
+        await fetch('/api/messages/bulk', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ids, action })
+        })
+
+        await invalidateAll()
       })
-      await invalidateAll()
       await goto(resolve(`/${page.params.mailbox}`))
     } finally {
       acting = false

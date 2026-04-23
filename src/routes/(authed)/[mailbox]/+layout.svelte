@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto, invalidateAll } from '$app/navigation'
   import { resolve } from '$app/paths'
+  import { trackAppLoading } from '$lib/loading.svelte'
   import { pathToSlug } from '$lib/mailbox'
   import { page } from '$app/state'
   import { onMount } from 'svelte'
@@ -165,7 +166,9 @@
 
     searchTimer = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/messages?q=${encodeURIComponent(query)}&limit=50`)
+        const response = await trackAppLoading(() =>
+          fetch(`/api/messages?q=${encodeURIComponent(query)}&limit=50`)
+        )
         if (!response.ok) throw new Error('Search failed')
 
         const payload = (await response.json()) as { messages: Message[] }
@@ -296,7 +299,7 @@
     const requestId = ++syncRequestId
 
     try {
-      const response = await fetch(messagesUrl(0, targetCount))
+      const response = await trackAppLoading(() => fetch(messagesUrl(0, targetCount)))
       if (!response.ok) throw new Error('Failed to refresh loaded messages.')
 
       const payload = (await response.json()) as { messages: Message[]; hasMore: boolean }
@@ -323,7 +326,7 @@
     loadMoreError = null
 
     try {
-      const response = await fetch(messagesUrl(messages.length, pageSize))
+      const response = await trackAppLoading(() => fetch(messagesUrl(messages.length, pageSize)))
       if (!response.ok) throw new Error('Failed to load more messages.')
 
       const payload = (await response.json()) as { messages: Message[]; hasMore: boolean }
@@ -477,13 +480,16 @@
     if (bulkActionPending || selectedIds.size === 0) return
     bulkActionPending = true
     try {
-      await fetch('/api/messages/bulk', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ids: [...selectedIds], action })
+      await trackAppLoading(async () => {
+        await fetch('/api/messages/bulk', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ids: [...selectedIds], action })
+        })
+
+        clearSelection()
+        await invalidateAll()
       })
-      clearSelection()
-      await invalidateAll()
     } finally {
       bulkActionPending = false
     }
@@ -575,21 +581,27 @@
   })
 
   async function archiveMessage(id: number) {
-    await fetch(`/api/messages/${id}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'archive' })
+    await trackAppLoading(async () => {
+      await fetch(`/api/messages/${id}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'archive' })
+      })
+
+      await invalidateAll()
     })
-    await invalidateAll()
   }
 
   async function trashMessage(id: number) {
-    await fetch(`/api/messages/${id}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'trash' })
+    await trackAppLoading(async () => {
+      await fetch(`/api/messages/${id}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'trash' })
+      })
+
+      await invalidateAll()
     })
-    await invalidateAll()
   }
 
   $effect(() => {
@@ -627,7 +639,7 @@
   async function handleRefresh() {
     if (refreshing) return
     refreshing = true
-    await invalidateAll()
+    await trackAppLoading(() => invalidateAll())
     await new Promise((r) => setTimeout(r, 600))
     refreshing = false
   }
@@ -765,7 +777,9 @@
       </label>
     </div>
 
-    <div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-6 select-none">
+    <div
+      class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 select-none sm:p-6"
+    >
       {#if isSearchMode && isSearching}
         <div class="text-center">
           <p class="text-sm text-zinc-500">Searching…</p>
