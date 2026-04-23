@@ -765,7 +765,7 @@
       </label>
     </div>
 
-    <div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-6">
+    <div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-6 select-none">
       {#if isSearchMode && isSearching}
         <div class="text-center">
           <p class="text-sm text-zinc-500">Searching…</p>
