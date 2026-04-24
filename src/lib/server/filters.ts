@@ -40,6 +40,8 @@ function getFieldValue(filter: Filter, msg: typeof mailMessage.$inferSelect): st
 export async function runFiltersOnMessages(messageIds: string[]): Promise<void> {
   if (messageIds.length === 0) return
 
+  const touchedThreadKeysByMailbox = new Map<string, Set<string>>()
+
   // Load all enabled filters ordered by sort_order
   const filters = await db
     .select()
@@ -102,6 +104,10 @@ export async function runFiltersOnMessages(messageIds: string[]): Promise<void> 
 
           if (!destination || destination === entry.mailbox) continue
           await db.delete(mailMessageMailbox).where(eq(mailMessageMailbox.id, entry.id))
+          const touchedThreadKeys =
+            touchedThreadKeysByMailbox.get(entry.mailbox) ?? new Set<string>()
+          touchedThreadKeys.add(msg.threadKey)
+          touchedThreadKeysByMailbox.set(entry.mailbox, touchedThreadKeys)
           enqueueMoveMessage(entry.uid, entry.mailbox, destination)
         }
       }
@@ -109,5 +115,12 @@ export async function runFiltersOnMessages(messageIds: string[]): Promise<void> 
       // First-match wins — stop evaluating further rules for this message
       break
     }
+  }
+
+  if (touchedThreadKeysByMailbox.size === 0) return
+
+  const { refreshThreadSummaries } = await import('$lib/server/mail')
+  for (const [mailbox, threadKeys] of touchedThreadKeysByMailbox) {
+    refreshThreadSummaries(mailbox, threadKeys)
   }
 }

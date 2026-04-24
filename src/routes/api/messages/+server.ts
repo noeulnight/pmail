@@ -1,12 +1,12 @@
 import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import {
-  listImapMailboxes,
   listStoredMessages,
   listStoredThreads,
+  resolveMailboxPath,
   searchMessages
 } from '$lib/server/mail'
-import { slugToPath } from '$lib/mailbox'
+import { payloadBytes, perfLog, perfMs, perfNow } from '$lib/server/perf'
 
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 100
@@ -22,12 +22,12 @@ function serializeMessage(
 ) {
   return {
     id: message.id,
+    messageId: message.messageId,
     uid: message.uid,
     subject: message.subject,
     from: message.from,
     to: message.to,
     preview: message.preview,
-    textContent: message.textContent,
     flags: JSON.parse(message.flags) as string[],
     receivedAt: message.receivedAt?.toISOString() ?? null,
     threadId: message.threadId ?? null,
@@ -37,6 +37,7 @@ function serializeMessage(
 }
 
 export const GET: RequestHandler = async ({ url }) => {
+  const startedAt = perfNow()
   const q = url.searchParams.get('q')?.trim() ?? ''
 
   if (q) {
@@ -47,10 +48,23 @@ export const GET: RequestHandler = async ({ url }) => {
     const messages = await searchMessages(q, limit + 1, offset)
     const hasMore = messages.length > limit
 
-    return json({
+    const body = {
       messages: messages.slice(0, limit).map((m) => serializeMessage(m, true)),
       hasMore
+    }
+
+    perfLog('api.messages.GET', {
+      mode: 'search',
+      q,
+      offset,
+      limit,
+      rows: body.messages.length,
+      hasMore,
+      payloadBytes: payloadBytes(body),
+      ms: perfMs(startedAt)
     })
+
+    return json(body)
   }
 
   const offset = parsePositiveInt(url.searchParams.get('offset'), 0)
@@ -59,22 +73,47 @@ export const GET: RequestHandler = async ({ url }) => {
   const mailboxSlug = url.searchParams.get('mailbox') ?? 'inbox'
   const threaded = url.searchParams.get('threaded') === '1'
 
-  const mailboxPath = slugToPath(mailboxSlug, listImapMailboxes())
+  const mailboxPath = await resolveMailboxPath(mailboxSlug)
 
   if (threaded) {
     const threads = listStoredThreads(mailboxPath, limit + 1, offset)
     const hasMore = threads.length > limit
-    return json({
+    const body = {
       messages: threads.slice(0, limit).map((m) => serializeMessage(m)),
       hasMore
+    }
+
+    perfLog('api.messages.GET', {
+      mode: 'threaded',
+      mailbox: mailboxPath,
+      offset,
+      limit,
+      rows: body.messages.length,
+      hasMore,
+      payloadBytes: payloadBytes(body),
+      ms: perfMs(startedAt)
     })
+
+    return json(body)
   }
 
   const messages = await listStoredMessages(mailboxPath, limit + 1, offset)
   const hasMore = messages.length > limit
-
-  return json({
+  const body = {
     messages: messages.slice(0, limit).map((m) => serializeMessage(m)),
     hasMore
+  }
+
+  perfLog('api.messages.GET', {
+    mode: 'list',
+    mailbox: mailboxPath,
+    offset,
+    limit,
+    rows: body.messages.length,
+    hasMore,
+    payloadBytes: payloadBytes(body),
+    ms: perfMs(startedAt)
   })
+
+  return json(body)
 }

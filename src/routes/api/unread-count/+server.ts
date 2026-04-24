@@ -2,15 +2,24 @@ import { json } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { db } from '$lib/server/db'
 import { mailMessageMailbox } from '$lib/server/db/schema'
-import { and, eq, notLike } from 'drizzle-orm'
+import { and, eq, notLike, sql } from 'drizzle-orm'
 import { getImapConfig } from '$lib/server/config'
+import { perfLog, perfMs, perfNow } from '$lib/server/perf'
 
 export const GET: RequestHandler = async () => {
+  const startedAt = perfNow()
   const config = await getImapConfig()
-  if ('missing' in config) return json({ count: 0 })
+  if ('missing' in config) {
+    perfLog('api.unreadCount.GET', {
+      configured: false,
+      count: 0,
+      ms: perfMs(startedAt)
+    })
+    return json({ count: 0 })
+  }
 
-  const rows = await db
-    .select({ flags: mailMessageMailbox.flags })
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
     .from(mailMessageMailbox)
     .where(
       and(
@@ -19,5 +28,14 @@ export const GET: RequestHandler = async () => {
       )
     )
 
-  return json({ count: rows.length })
+  const count = Number(row?.count ?? 0)
+
+  perfLog('api.unreadCount.GET', {
+    configured: true,
+    mailbox: config.mailbox,
+    count,
+    ms: perfMs(startedAt)
+  })
+
+  return json({ count })
 }

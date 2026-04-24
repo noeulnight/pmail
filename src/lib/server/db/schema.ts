@@ -38,21 +38,29 @@ export const mailboxSync = sqliteTable('mailbox_sync', {
 })
 
 // Stores unique message content, keyed by Message-ID header
-export const mailMessage = sqliteTable('mail_message', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  messageId: text('message_id').notNull().unique(),
-  subject: text('subject').notNull().default(''),
-  from: text('from').notNull().default(''),
-  to: text('to').notNull().default(''),
-  cc: text('cc').notNull().default(''),
-  preview: text('preview').notNull().default(''),
-  textContent: text('text_content').notNull().default(''),
-  htmlContent: text('html_content'),
-  inReplyTo: text('in_reply_to'),
-  references: text('references'),
-  threadId: text('thread_id'),
-  receivedAt: integer('received_at', { mode: 'timestamp_ms' })
-})
+export const mailMessage = sqliteTable(
+  'mail_message',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    messageId: text('message_id').notNull().unique(),
+    subject: text('subject').notNull().default(''),
+    from: text('from').notNull().default(''),
+    to: text('to').notNull().default(''),
+    cc: text('cc').notNull().default(''),
+    preview: text('preview').notNull().default(''),
+    textContent: text('text_content').notNull().default(''),
+    htmlContent: text('html_content'),
+    inReplyTo: text('in_reply_to'),
+    references: text('references'),
+    threadId: text('thread_id'),
+    threadKey: text('thread_key').notNull().default(''),
+    receivedAt: integer('received_at', { mode: 'timestamp_ms' })
+  },
+  (table) => [
+    index('mail_message_thread_id_idx').on(table.threadId),
+    index('mail_message_thread_key_idx').on(table.threadKey)
+  ]
+)
 
 // Stores per-mailbox presence of a message (uid, flags)
 export const mailMessageMailbox = sqliteTable(
@@ -63,13 +71,39 @@ export const mailMessageMailbox = sqliteTable(
     mailbox: text('mailbox').notNull(),
     uid: integer('uid').notNull(),
     flags: text('flags').notNull().default('[]'),
+    receivedAt: integer('received_at', { mode: 'timestamp_ms' }),
     syncedAt: integer('synced_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date())
   },
   (table) => [
     uniqueIndex('mail_message_mailbox_mailbox_uid_idx').on(table.mailbox, table.uid),
-    index('mail_message_mailbox_message_id_idx').on(table.messageId)
+    index('mail_message_mailbox_message_id_idx').on(table.messageId),
+    index('mail_message_mailbox_mailbox_received_at_uid_idx').on(
+      table.mailbox,
+      table.receivedAt,
+      table.uid
+    )
+  ]
+)
+
+export const mailThreadSummary = sqliteTable(
+  'mail_thread_summary',
+  {
+    mailbox: text('mailbox').notNull(),
+    threadKey: text('thread_key').notNull(),
+    representativeMailboxEntryId: integer('representative_mailbox_entry_id').notNull(),
+    threadCount: integer('thread_count').notNull(),
+    latestUid: integer('latest_uid').notNull(),
+    latestReceivedAt: integer('latest_received_at', { mode: 'timestamp_ms' })
+  },
+  (table) => [
+    uniqueIndex('mail_thread_summary_mailbox_thread_key_idx').on(table.mailbox, table.threadKey),
+    index('mail_thread_summary_mailbox_latest_received_at_uid_idx').on(
+      table.mailbox,
+      table.latestReceivedAt,
+      table.latestUid
+    )
   ]
 )
 

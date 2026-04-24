@@ -4,14 +4,14 @@ import {
   getMessagesInThread,
   markMessageAsRead,
   getMailboxRole,
-  listImapMailboxes
+  resolveMailboxPath
 } from '$lib/server/mail'
 import { db } from '$lib/server/db'
 import { mailAttachment } from '$lib/server/db/schema'
+import { payloadBytes, perfLog, perfMs, perfNow } from '$lib/server/perf'
 import { inArray } from 'drizzle-orm'
-import { slugToPath } from '$lib/mailbox'
 
-function serializeMessage(message: ReturnType<typeof getMessagesInThread>[number]) {
+function serializeMessage(message: Awaited<ReturnType<typeof getMessagesInThread>>[number]) {
   return {
     id: message.id,
     uid: message.uid,
@@ -28,8 +28,9 @@ function serializeMessage(message: ReturnType<typeof getMessagesInThread>[number
 }
 
 export const load: PageServerLoad = async ({ params }) => {
-  const mailboxPath = slugToPath(params.mailbox, listImapMailboxes())
-  const messages = getMessagesInThread(params.threadId, mailboxPath)
+  const startedAt = perfNow()
+  const mailboxPath = await resolveMailboxPath(params.mailbox)
+  const messages = await getMessagesInThread(params.threadId, mailboxPath)
 
   if (messages.length === 0) {
     error(404, 'Thread not found')
@@ -62,10 +63,21 @@ export const load: PageServerLoad = async ({ params }) => {
 
   const mailboxRole = getMailboxRole(mailboxPath)
 
-  return {
+  const body = {
     threadId: params.threadId,
     messages: messages.map(serializeMessage),
     attachments,
     mailboxRole
   }
+
+  perfLog('load.threadPage', {
+    mailbox: mailboxPath,
+    threadId: params.threadId,
+    messages: body.messages.length,
+    attachments: attachments.length,
+    payloadBytes: payloadBytes(body),
+    ms: perfMs(startedAt)
+  })
+
+  return body
 }

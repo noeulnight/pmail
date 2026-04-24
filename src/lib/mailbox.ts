@@ -9,5 +9,11 @@ export function pathToSlug(path: string): string {
 }
 
 export function slugToPath(slug: string, mailboxes: { path: string }[]): string {
-  return mailboxes.find((mb) => pathToSlug(mb.path) === slug)?.path ?? slug
+  const normalizedSlug = slug.toLowerCase()
+
+  return (
+    mailboxes.find((mb) => pathToSlug(mb.path) === normalizedSlug)?.path ??
+    mailboxes.find((mb) => mb.path.toLowerCase() === normalizedSlug)?.path ??
+    slug
+  )
 }

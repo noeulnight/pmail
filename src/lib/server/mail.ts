@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
+import { slugToPath } from '$lib/mailbox'
 import { db, client as sqliteClient } from '$lib/server/db'
 import {
   mailboxSync,
@@ -12,6 +13,7 @@ import {
 } from '$lib/server/db/schema'
 import { enqueueMarkRead, enqueueMoveMessage, registerImapConfig } from '$lib/server/imap-queue'
 import { getImapConfig, type ImapConfig } from '$lib/server/config'
+import { perfError, perfLog, perfMs, perfNow } from '$lib/server/perf'
 import { withRetry } from '$lib/server/retry'
 
 const IMAP_CONNECT_TIMEOUT_MS = 20_000
@@ -43,8 +45,7 @@ async function connectImap(config: ImapConfig, label: string): Promise<ImapFlow>
   )
 }
 
-// Joined row returned by list/get queries
-export type MailRow = {
+export type MailListRow = {
   id: number // mail_message_mailbox.id
   messageId: string
   mailbox: string
@@ -54,13 +55,17 @@ export type MailRow = {
   from: string
   to: string
   preview: string
-  textContent: string
-  htmlContent: string | null
   receivedAt: Date | null
   threadId: string | null
 }
 
-export type ThreadRow = MailRow & { threadCount: number }
+// Joined row returned by detail queries
+export type MailRow = MailListRow & {
+  textContent: string
+  htmlContent: string | null
+}
+
+export type ThreadRow = MailListRow & { threadCount: number }
 
 export type SyncResult = {
   mailbox: string
@@ -199,8 +204,10 @@ async function saveSyncState(mailbox: string, values: Partial<typeof mailboxSync
     })
 }
 
-// Resolve a thread ID by walking In-Reply-To / References chains
-async function resolveThreadId(
+// Resolve a stable thread key by walking In-Reply-To / References chains.
+// The key is stored separately from the legacy threadId column so mailbox
+// summaries can rely on a non-null identifier.
+async function resolveThreadKey(
   references: string[],
   inReplyTo: string | null,
   ownId: string
@@ -208,20 +215,20 @@ async function resolveThreadId(
   const candidates = [...references, inReplyTo].filter((x): x is string => !!x)
   if (candidates.length === 0) return ownId
   const [existing] = await db
-    .select({ threadId: mailMessage.threadId })
+    .select({ threadKey: mailMessage.threadKey })
     .from(mailMessage)
     .where(inArray(mailMessage.messageId, candidates))
     .limit(1)
-  return existing?.threadId ?? candidates[0] ?? ownId
+  return existing?.threadKey ?? candidates[0] ?? ownId
 }
 
-// Store or skip message content (skipped if message_id already exists)
-// Returns true if a new message was inserted (false = already existed)
+// Store or skip message content (skipped if message_id already exists).
+// Returns the stable thread key and whether a new message row was inserted.
 async function storeMessageContent(
   effectiveMessageId: string,
   message: Awaited<ReturnType<typeof simpleParser>>,
   internalDate?: Date
-): Promise<boolean> {
+): Promise<{ isNew: boolean; threadKey: string }> {
   const receivedAt = message.date ?? internalDate ?? null
   const textContent = message.text?.trim() ?? ''
   const htmlContent = typeof message.html === 'string' ? message.html : null
@@ -233,9 +240,9 @@ async function storeMessageContent(
     : ((message.references as string | undefined) ?? null)
   const cc = summarizeAddresses(message.cc as Parameters<typeof summarizeAddresses>[0])
 
-  // Resolve thread ID
+  // Resolve thread key
   const refList = references ? references.split(/\s+/).filter(Boolean) : []
-  const threadId = await resolveThreadId(refList, inReplyTo, effectiveMessageId)
+  const threadKey = await resolveThreadKey(refList, inReplyTo, effectiveMessageId)
 
   const result = await db
     .insert(mailMessage)
@@ -250,7 +257,8 @@ async function storeMessageContent(
       htmlContent,
       inReplyTo,
       references,
-      threadId,
+      threadId: threadKey,
+      threadKey,
       receivedAt
     })
     .onConflictDoNothing()
@@ -278,7 +286,7 @@ async function storeMessageContent(
     }
   }
 
-  return isNew
+  return { isNew, threadKey }
 }
 
 // Insert or update the per-mailbox entry for a message
@@ -286,7 +294,8 @@ async function storeMailboxEntry(
   effectiveMessageId: string,
   mailbox: string,
   uid: number,
-  flags: string[]
+  flags: string[],
+  receivedAt?: Date | null
 ) {
   await db
     .insert(mailMessageMailbox)
@@ -295,6 +304,7 @@ async function storeMailboxEntry(
       mailbox,
       uid,
       flags: JSON.stringify(flags),
+      receivedAt: receivedAt ?? null,
       syncedAt: new Date()
     })
     .onConflictDoUpdate({
@@ -302,6 +312,7 @@ async function storeMailboxEntry(
       set: {
         messageId: effectiveMessageId,
         flags: JSON.stringify(flags),
+        receivedAt: receivedAt ?? null,
         syncedAt: new Date()
       }
     })
@@ -384,14 +395,13 @@ async function syncOneMailbox(
         // Phase 2: check which message-ids we already have content for
         console.log(`[sync] ${mailboxPath}: checking cache for ${fetchedCount} message-ids...`)
         const allMessageIds = envelopeItems.map((i) => i.effectiveMessageId)
-        const existingIds = new Set(
-          (
-            await db
-              .select({ messageId: mailMessage.messageId })
-              .from(mailMessage)
-              .where(inArray(mailMessage.messageId, allMessageIds))
-          ).map((r) => r.messageId)
-        )
+        const existingRows = await db
+          .select({ messageId: mailMessage.messageId, threadKey: mailMessage.threadKey })
+          .from(mailMessage)
+          .where(inArray(mailMessage.messageId, allMessageIds))
+
+        const existingIds = new Set(existingRows.map((row) => row.messageId))
+        const touchedThreadKeys = new Set(existingRows.map((row) => row.threadKey))
 
         const needsSourceItems = envelopeItems.filter((i) => !existingIds.has(i.effectiveMessageId))
         const cachedItems = envelopeItems.filter((i) => existingIds.has(i.effectiveMessageId))
@@ -428,6 +438,7 @@ async function syncOneMailbox(
                     mailbox: mailboxPath,
                     uid: item.uid,
                     flags: JSON.stringify(item.flags),
+                    receivedAt: item.internalDate ?? null,
                     syncedAt: new Date()
                   })
                   .onConflictDoUpdate({
@@ -435,6 +446,7 @@ async function syncOneMailbox(
                     set: {
                       messageId: item.effectiveMessageId,
                       flags: JSON.stringify(item.flags),
+                      receivedAt: item.internalDate ?? null,
                       syncedAt: new Date()
                     }
                   })
@@ -473,13 +485,20 @@ async function syncOneMailbox(
               const item = itemByUid.get(fetchItem.uid)
               if (!item) continue
               const parsed = await simpleParser(fetchItem.source)
-              const isNew = await storeMessageContent(
+              const storedMessage = await storeMessageContent(
                 item.effectiveMessageId,
                 parsed,
                 item.internalDate
               )
-              if (isNew) newlyStoredMessageIds.push(item.effectiveMessageId)
-              await storeMailboxEntry(item.effectiveMessageId, mailboxPath, item.uid, item.flags)
+              if (storedMessage.isNew) newlyStoredMessageIds.push(item.effectiveMessageId)
+              touchedThreadKeys.add(storedMessage.threadKey)
+              await storeMailboxEntry(
+                item.effectiveMessageId,
+                mailboxPath,
+                item.uid,
+                item.flags,
+                item.internalDate
+              )
               storedCount += 1
               if (activeSyncProgress) activeSyncProgress.stored = storedCount
               if (storedCount % 100 === 0) {
@@ -497,8 +516,12 @@ async function syncOneMailbox(
         if (newlyStoredMessageIds.length > 0) {
           const { runFiltersOnMessages } = await import('$lib/server/filters')
           await runFiltersOnMessages(newlyStoredMessageIds)
+        }
 
-          // Send push notifications for new messages
+        refreshThreadSummaries(mailboxPath, touchedThreadKeys)
+
+        // Send push notifications for new messages
+        if (newlyStoredMessageIds.length > 0) {
           try {
             const { sendPushToAll } = await import('$lib/server/push')
             const newMsgs = await db
@@ -631,9 +654,10 @@ export async function getSyncSummary(): Promise<{
   errorMessage: string | null
   progress: { mailbox: string; stored: number; total: number } | null
 }> {
+  const startedAt = perfNow()
   const config = await getImapConfig()
   if ('missing' in config) {
-    return {
+    const summary = {
       syncing: false,
       configured: false,
       hasError: false,
@@ -641,6 +665,14 @@ export async function getSyncSummary(): Promise<{
       errorMessage: null,
       progress: null
     }
+
+    perfLog('mail.getSyncSummary', {
+      configured: false,
+      rows: 0,
+      ms: perfMs(startedAt)
+    })
+
+    return summary
   }
 
   const rows = await db.select().from(mailboxSync)
@@ -660,7 +692,7 @@ export async function getSyncSummary(): Promise<{
     return !max || r.lastSyncedAt > max ? r.lastSyncedAt : max
   }, null)
 
-  return {
+  const summary = {
     syncing: activeSync !== null,
     configured: true,
     hasError,
@@ -668,6 +700,16 @@ export async function getSyncSummary(): Promise<{
     errorMessage,
     progress: activeSyncProgress ? { ...activeSyncProgress } : null
   }
+
+  perfLog('mail.getSyncSummary', {
+    configured: true,
+    rows: rows.length,
+    syncedRows: syncedRows.length,
+    errorRows: errorRows.length,
+    ms: perfMs(startedAt)
+  })
+
+  return summary
 }
 
 export async function getMailboxSyncStatus(mailboxPath: string): Promise<SyncResult> {
@@ -735,24 +777,35 @@ export type ImapMailbox = {
 let cachedMailboxes: ImapMailbox[] | null = null
 const MAILBOX_REFRESH_MS = 10 * 60 * 1000
 let mailboxRefreshTimer: ReturnType<typeof setInterval> | null = null
+let mailboxRefreshPromise: Promise<ImapMailbox[]> | null = null
 
-async function refreshMailboxCache(): Promise<void> {
-  const config = await getImapConfig()
-  if ('missing' in config) return
+async function refreshMailboxCache(): Promise<ImapMailbox[]> {
+  if (mailboxRefreshPromise) return mailboxRefreshPromise
 
-  try {
-    const client = await connectImap(config, 'mailbox cache refresh')
-    const tree = await client.list()
-    await client.logout()
+  mailboxRefreshPromise = (async () => {
+    const config = await getImapConfig()
+    if ('missing' in config) return cachedMailboxes ?? []
 
-    cachedMailboxes = tree.map((mb) => ({
-      path: mb.path,
-      name: mb.name,
-      delimiter: mb.delimiter ?? '/'
-    }))
-  } catch {
-    // keep existing cache on failure — retries exhausted or auth failure
-  }
+    try {
+      const client = await connectImap(config, 'mailbox cache refresh')
+      const tree = await client.list()
+      await client.logout()
+
+      cachedMailboxes = tree.map((mb) => ({
+        path: mb.path,
+        name: mb.name,
+        delimiter: mb.delimiter ?? '/'
+      }))
+    } catch {
+      // keep existing cache on failure — retries exhausted or auth failure
+    }
+
+    return cachedMailboxes ?? []
+  })().finally(() => {
+    mailboxRefreshPromise = null
+  })
+
+  return mailboxRefreshPromise
 }
 
 function startMailboxCacheRefresh() {
@@ -767,7 +820,24 @@ export function listImapMailboxes(): ImapMailbox[] {
   return cachedMailboxes ?? []
 }
 
-const joinedSelect = {
+export async function getImapMailboxes(options?: {
+  waitForCache?: boolean
+}): Promise<ImapMailbox[]> {
+  if (cachedMailboxes) return cachedMailboxes
+  if (!options?.waitForCache) return []
+  return refreshMailboxCache()
+}
+
+export async function resolveMailboxPath(
+  mailboxSlug: string,
+  mailboxes: { path: string }[] = []
+): Promise<string> {
+  const knownMailboxes =
+    mailboxes.length > 0 ? mailboxes : await getImapMailboxes({ waitForCache: true })
+  return slugToPath(mailboxSlug, knownMailboxes)
+}
+
+const listSelect = {
   id: mailMessageMailbox.id,
   messageId: mailMessage.messageId,
   mailbox: mailMessageMailbox.mailbox,
@@ -777,26 +847,156 @@ const joinedSelect = {
   from: mailMessage.from,
   to: mailMessage.to,
   preview: mailMessage.preview,
-  textContent: mailMessage.textContent,
-  htmlContent: mailMessage.htmlContent,
   receivedAt: mailMessage.receivedAt,
-  threadId: mailMessage.threadId
+  threadId: mailMessage.threadKey
+}
+
+const detailSelect = {
+  ...listSelect,
+  textContent: mailMessage.textContent,
+  htmlContent: mailMessage.htmlContent
+}
+
+type ThreadSummaryCandidate = {
+  representativeMailboxEntryId: number
+  threadCount: number
+  latestUid: number
+  latestReceivedAt: number | null
+}
+
+const selectThreadSummaryCandidateStmt = sqliteClient.prepare(
+  `SELECT
+     representativeMailboxEntryId,
+     threadCount,
+     latestUid,
+     latestReceivedAt
+   FROM (
+     SELECT
+       mmb.id AS representativeMailboxEntryId,
+       COUNT(*) OVER () AS threadCount,
+       mmb.uid AS latestUid,
+       mmb.received_at AS latestReceivedAt
+     FROM mail_message_mailbox mmb
+     JOIN mail_message m ON mmb.message_id = m.message_id
+     WHERE mmb.mailbox = ?
+       AND m.thread_key = ?
+     ORDER BY mmb.received_at DESC, mmb.uid DESC
+     LIMIT 1
+   )`
+)
+
+const upsertThreadSummaryStmt = sqliteClient.prepare(
+  `INSERT INTO mail_thread_summary (
+     mailbox,
+     thread_key,
+     representative_mailbox_entry_id,
+     thread_count,
+     latest_uid,
+     latest_received_at
+   ) VALUES (?, ?, ?, ?, ?, ?)
+   ON CONFLICT(mailbox, thread_key) DO UPDATE SET
+     representative_mailbox_entry_id = excluded.representative_mailbox_entry_id,
+     thread_count = excluded.thread_count,
+     latest_uid = excluded.latest_uid,
+     latest_received_at = excluded.latest_received_at`
+)
+
+const deleteThreadSummaryStmt = sqliteClient.prepare(
+  `DELETE FROM mail_thread_summary WHERE mailbox = ? AND thread_key = ?`
+)
+
+function refreshThreadSummary(mailbox: string, threadKey: string) {
+  const candidate = selectThreadSummaryCandidateStmt.get(mailbox, threadKey) as
+    | ThreadSummaryCandidate
+    | undefined
+
+  if (!candidate) {
+    deleteThreadSummaryStmt.run(mailbox, threadKey)
+    return
+  }
+
+  upsertThreadSummaryStmt.run(
+    mailbox,
+    threadKey,
+    candidate.representativeMailboxEntryId,
+    candidate.threadCount,
+    candidate.latestUid,
+    candidate.latestReceivedAt
+  )
+}
+
+export function refreshThreadSummaries(mailbox: string, threadKeys: Iterable<string>) {
+  const uniqueThreadKeys = Array.from(
+    new Set(Array.from(threadKeys).filter((threadKey): threadKey is string => threadKey.length > 0))
+  )
+
+  if (uniqueThreadKeys.length === 0) return
+
+  sqliteClient.transaction((keys: string[]) => {
+    for (const threadKey of keys) {
+      refreshThreadSummary(mailbox, threadKey)
+    }
+  })(uniqueThreadKeys)
 }
 
 export async function listStoredMessages(mailboxPath: string, limit = 100, offset = 0) {
-  return db
-    .select(joinedSelect)
-    .from(mailMessageMailbox)
-    .innerJoin(mailMessage, eq(mailMessageMailbox.messageId, mailMessage.messageId))
-    .where(eq(mailMessageMailbox.mailbox, mailboxPath))
-    .orderBy(desc(mailMessage.receivedAt), desc(mailMessageMailbox.uid))
-    .offset(offset)
-    .limit(limit)
+  const startedAt = perfNow()
+  type RawRow = Omit<MailListRow, 'receivedAt'> & { receivedAt: number | null }
+
+  try {
+    const rows = sqliteClient
+      .prepare(
+        `SELECT
+           mmb.id,
+           m.message_id AS messageId,
+           mmb.mailbox,
+           mmb.uid,
+           mmb.flags,
+           m.subject,
+           m."from",
+           m."to",
+           m.preview,
+           mmb.received_at AS receivedAt,
+           m.thread_key AS threadId
+          FROM (
+           SELECT id, message_id, mailbox, uid, flags, received_at
+           FROM mail_message_mailbox
+           WHERE mailbox = ?
+           ORDER BY received_at DESC, uid DESC
+           LIMIT ? OFFSET ?
+         ) mmb
+         JOIN mail_message m ON mmb.message_id = m.message_id
+         ORDER BY mmb.received_at DESC, mmb.uid DESC`
+      )
+      .all(mailboxPath, limit, offset) as RawRow[]
+
+    perfLog('mail.listStoredMessages', {
+      mailbox: mailboxPath,
+      limit,
+      offset,
+      rows: rows.length,
+      ms: perfMs(startedAt)
+    })
+
+    return rows.map((row) => ({
+      ...row,
+      receivedAt: row.receivedAt != null ? new Date(row.receivedAt) : null
+    }))
+  } catch (error) {
+    perfLog('mail.listStoredMessages', {
+      mailbox: mailboxPath,
+      limit,
+      offset,
+      ms: perfMs(startedAt),
+      error: perfError(error)
+    })
+    throw error
+  }
 }
 
 // Returns one representative message per thread, ordered by most recent activity.
-// Uses MAX(uid) within each thread group as the representative mailbox entry.
 export function listStoredThreads(mailboxPath: string, limit = 100, offset = 0): ThreadRow[] {
+  const startedAt = perfNow()
   type RawRow = {
     id: number
     messageId: string
@@ -807,88 +1007,117 @@ export function listStoredThreads(mailboxPath: string, limit = 100, offset = 0):
     from: string
     to: string
     preview: string
-    textContent: string
-    htmlContent: string | null
     receivedAt: number | null
     threadId: string | null
     threadCount: number
   }
 
-  const rows = sqliteClient
-    .prepare(
-      `SELECT
-         mmb.id,
-         m.message_id        AS messageId,
-         mmb.mailbox,
-         mmb.uid,
-         mmb.flags,
-         m.subject,
-         m."from",
-         m."to",
-         m.preview,
-         m.text_content      AS textContent,
-         m.html_content      AS htmlContent,
-         m.received_at       AS receivedAt,
-         COALESCE(m.thread_id, m.message_id) AS threadId,
-         grp.thread_count    AS threadCount
-       FROM mail_message_mailbox mmb
-       JOIN mail_message m ON mmb.message_id = m.message_id
-       JOIN (
-         SELECT
-           COALESCE(m2.thread_id, m2.message_id) AS thr,
-           COUNT(*)  AS thread_count,
-           MAX(mmb2.uid) AS max_uid
-         FROM mail_message_mailbox mmb2
-         JOIN mail_message m2 ON mmb2.message_id = m2.message_id
-         WHERE mmb2.mailbox = ?
-         GROUP BY thr
-       ) grp
-         ON COALESCE(m.thread_id, m.message_id) = grp.thr
-        AND mmb.uid = grp.max_uid
-       WHERE mmb.mailbox = ?
-       ORDER BY m.received_at DESC, mmb.uid DESC
-       LIMIT ? OFFSET ?`
-    )
-    .all(mailboxPath, mailboxPath, limit, offset) as RawRow[]
+  try {
+    const rows = sqliteClient
+      .prepare(
+        `SELECT
+           rep.id              AS id,
+           m.message_id        AS messageId,
+           mts.mailbox,
+           rep.uid             AS uid,
+           rep.flags           AS flags,
+           m.subject,
+           m."from",
+           m."to",
+           m.preview,
+           mts.latest_received_at AS receivedAt,
+           mts.thread_key      AS threadId,
+           mts.thread_count    AS threadCount
+          FROM mail_thread_summary mts
+          JOIN mail_message_mailbox rep ON rep.id = mts.representative_mailbox_entry_id
+          JOIN mail_message m ON rep.message_id = m.message_id
+          WHERE mts.mailbox = ?
+          ORDER BY mts.latest_received_at DESC, mts.latest_uid DESC
+          LIMIT ? OFFSET ?`
+      )
+      .all(mailboxPath, limit, offset) as RawRow[]
 
-  return rows.map((row) => ({
-    ...row,
-    receivedAt: row.receivedAt != null ? new Date(row.receivedAt) : null
-  }))
+    perfLog('mail.listStoredThreads', {
+      mailbox: mailboxPath,
+      limit,
+      offset,
+      rows: rows.length,
+      ms: perfMs(startedAt)
+    })
+
+    return rows.map((row) => ({
+      ...row,
+      receivedAt: row.receivedAt != null ? new Date(row.receivedAt) : null
+    }))
+  } catch (error) {
+    perfLog('mail.listStoredThreads', {
+      mailbox: mailboxPath,
+      limit,
+      offset,
+      ms: perfMs(startedAt),
+      error: perfError(error)
+    })
+    throw error
+  }
 }
 
 // Returns all messages belonging to a thread, ordered oldest-first.
-export function getMessagesInThread(threadId: string, mailboxPath: string): MailRow[] {
-  type RawRow = Omit<MailRow, 'receivedAt'> & { receivedAt: number | null }
+export async function getMessagesInThread(
+  threadKey: string,
+  mailboxPath: string
+): Promise<MailRow[]> {
+  const startedAt = perfNow()
 
-  const rows = sqliteClient
-    .prepare(
-      `SELECT
-         mmb.id,
-         m.message_id   AS messageId,
-         mmb.mailbox,
-         mmb.uid,
-         mmb.flags,
-         m.subject,
-         m."from",
-         m."to",
-         m.preview,
-         m.text_content AS textContent,
-         m.html_content AS htmlContent,
-         m.received_at  AS receivedAt,
-         COALESCE(m.thread_id, m.message_id) AS threadId
-       FROM mail_message_mailbox mmb
-       JOIN mail_message m ON mmb.message_id = m.message_id
-       WHERE mmb.mailbox = ?
-         AND COALESCE(m.thread_id, m.message_id) = ?
-       ORDER BY m.received_at ASC, mmb.uid ASC`
-    )
-    .all(mailboxPath, threadId) as RawRow[]
+  try {
+    const threadMessages = await db
+      .select({ messageId: mailMessage.messageId })
+      .from(mailMessage)
+      .where(eq(mailMessage.threadKey, threadKey))
+      .orderBy(asc(mailMessage.receivedAt), asc(mailMessage.messageId))
 
-  return rows.map((row) => ({
-    ...row,
-    receivedAt: row.receivedAt != null ? new Date(row.receivedAt) : null
-  }))
+    if (threadMessages.length === 0) {
+      perfLog('mail.getMessagesInThread', {
+        mailbox: mailboxPath,
+        threadId: threadKey,
+        rows: 0,
+        ms: perfMs(startedAt)
+      })
+
+      return []
+    }
+
+    const rows = await db
+      .select(detailSelect)
+      .from(mailMessage)
+      .innerJoin(mailMessageMailbox, eq(mailMessageMailbox.messageId, mailMessage.messageId))
+      .where(
+        and(
+          eq(mailMessageMailbox.mailbox, mailboxPath),
+          inArray(
+            mailMessage.messageId,
+            threadMessages.map((message) => message.messageId)
+          )
+        )
+      )
+      .orderBy(asc(mailMessage.receivedAt), asc(mailMessageMailbox.uid))
+
+    perfLog('mail.getMessagesInThread', {
+      mailbox: mailboxPath,
+      threadId: threadKey,
+      rows: rows.length,
+      ms: perfMs(startedAt)
+    })
+
+    return rows
+  } catch (error) {
+    perfLog('mail.getMessagesInThread', {
+      mailbox: mailboxPath,
+      threadId: threadKey,
+      ms: perfMs(startedAt),
+      error: perfError(error)
+    })
+    throw error
+  }
 }
 
 function buildFtsQuery(userQuery: string): string {
@@ -901,25 +1130,65 @@ function buildFtsQuery(userQuery: string): string {
 }
 
 export async function searchMessages(query: string, limit: number, offset: number) {
+  const startedAt = perfNow()
   const ftsQuery = buildFtsQuery(query)
-  if (!ftsQuery) return []
+  if (!ftsQuery) {
+    perfLog('mail.searchMessages', {
+      query,
+      limit,
+      offset,
+      rows: 0,
+      ms: perfMs(startedAt),
+      skipped: true
+    })
+    return []
+  }
 
   let ftsRows: { rowid: number }[]
   try {
     ftsRows = db.all<{ rowid: number }>(
       sql`SELECT rowid FROM mail_message_fts WHERE mail_message_fts MATCH ${ftsQuery} ORDER BY rank LIMIT ${limit + offset}`
     )
-  } catch {
+  } catch (error) {
+    perfLog('mail.searchMessages', {
+      query,
+      limit,
+      offset,
+      ms: perfMs(startedAt),
+      error: perfError(error),
+      stage: 'fts'
+    })
     return []
   }
 
-  if (!ftsRows.length) return []
+  if (!ftsRows.length) {
+    perfLog('mail.searchMessages', {
+      query,
+      limit,
+      offset,
+      ftsRows: 0,
+      rows: 0,
+      ms: perfMs(startedAt)
+    })
+    return []
+  }
 
   const pageIds = ftsRows.slice(offset, offset + limit).map((r) => r.rowid)
-  if (!pageIds.length) return []
+  if (!pageIds.length) {
+    perfLog('mail.searchMessages', {
+      query,
+      limit,
+      offset,
+      ftsRows: ftsRows.length,
+      rows: 0,
+      ms: perfMs(startedAt),
+      stage: 'slice'
+    })
+    return []
+  }
 
   const rows = await db
-    .select(joinedSelect)
+    .select(listSelect)
     .from(mailMessage)
     .innerJoin(mailMessageMailbox, eq(mailMessageMailbox.messageId, mailMessage.messageId))
     .where(inArray(mailMessage.id, pageIds))
@@ -927,17 +1196,29 @@ export async function searchMessages(query: string, limit: number, offset: numbe
 
   // Deduplicate: a message may appear in multiple mailboxes — keep first occurrence
   const seen = new Set<string>()
-  return rows.filter((row) => {
+  const deduped = rows.filter((row) => {
     if (seen.has(row.messageId)) return false
     seen.add(row.messageId)
     return true
   })
+
+  perfLog('mail.searchMessages', {
+    query,
+    limit,
+    offset,
+    ftsRows: ftsRows.length,
+    hydratedRows: rows.length,
+    rows: deduped.length,
+    ms: perfMs(startedAt)
+  })
+
+  return deduped
 }
 
 export async function getStoredMessageById(id: string | number): Promise<MailRow | null> {
   const numericId = typeof id === 'string' ? parseInt(id, 10) : id
   const [message] = await db
-    .select(joinedSelect)
+    .select(detailSelect)
     .from(mailMessageMailbox)
     .innerJoin(mailMessage, eq(mailMessageMailbox.messageId, mailMessage.messageId))
     .where(eq(mailMessageMailbox.id, numericId))
@@ -1004,7 +1285,7 @@ export async function getMessageByShareToken(token: string): Promise<MailRow | n
   if (!share) return null
 
   const [message] = await db
-    .select(joinedSelect)
+    .select(detailSelect)
     .from(mailMessageMailbox)
     .innerJoin(mailMessage, eq(mailMessageMailbox.messageId, mailMessage.messageId))
     .where(eq(mailMessage.messageId, share.messageId))
@@ -1019,6 +1300,7 @@ export async function moveMessage(message: MailRow, action: MessageAction): Prom
 
   // Optimistically remove from source mailbox — next sync will add it to target
   await db.delete(mailMessageMailbox).where(eq(mailMessageMailbox.id, message.id))
+  refreshThreadSummaries(message.mailbox, [message.threadId ?? message.messageId])
 
   enqueueMoveMessage(message.uid, message.mailbox, targetMailbox)
   return targetMailbox

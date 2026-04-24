@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types'
 import { getStoredMessageById, markMessageAsRead, getMailboxRole } from '$lib/server/mail'
 import { db } from '$lib/server/db'
 import { mailAttachment } from '$lib/server/db/schema'
+import { payloadBytes, perfLog, perfMs, perfNow } from '$lib/server/perf'
 import { eq } from 'drizzle-orm'
 
 function serializeMessage(message: NonNullable<Awaited<ReturnType<typeof getStoredMessageById>>>) {
@@ -22,6 +23,7 @@ function serializeMessage(message: NonNullable<Awaited<ReturnType<typeof getStor
 }
 
 export const load: PageServerLoad = async ({ params }) => {
+  const startedAt = perfNow()
   const message = await getStoredMessageById(params.id)
 
   if (!message) {
@@ -41,9 +43,18 @@ export const load: PageServerLoad = async ({ params }) => {
     .from(mailAttachment)
     .where(eq(mailAttachment.messageId, message.messageId))
 
-  return {
+  const body = {
     message: serializeMessage(message),
     mailboxRole: getMailboxRole(message.mailbox),
     attachments
   }
+
+  perfLog('load.messagePage', {
+    id: params.id,
+    attachments: attachments.length,
+    payloadBytes: payloadBytes(body),
+    ms: perfMs(startedAt)
+  })
+
+  return body
 }

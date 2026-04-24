@@ -1,9 +1,9 @@
 import type { LayoutServerLoad } from './$types'
-import { listImapMailboxes } from '$lib/server/mail'
+import { getImapMailboxes } from '$lib/server/mail'
 
 export const load: LayoutServerLoad = async ({ locals }) => {
   return {
-    imapMailboxes: listImapMailboxes(),
+    imapMailboxes: await getImapMailboxes({ waitForCache: true }),
     user: locals.user ?? null
   }
 }

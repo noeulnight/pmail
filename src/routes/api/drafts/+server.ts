@@ -2,41 +2,38 @@ import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { db } from '$lib/server/db'
 import { mailDraft } from '$lib/server/db/schema'
-import { parseComposerAttachments, summarizeAttachments } from '$lib/mail-attachments'
+import { parseComposerAttachments } from '$lib/mail-attachments'
 import { desc, eq } from 'drizzle-orm'
-
-function parseStoredAttachments(value: string) {
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return parseComposerAttachments(parsed)
-  } catch {
-    return { ok: false as const, error: 'Stored draft attachments are invalid' }
-  }
-}
+import { payloadBytes, perfLog, perfMs, perfNow } from '$lib/server/perf'
 
 export const GET: RequestHandler = async () => {
-  const drafts = await db.select().from(mailDraft).orderBy(desc(mailDraft.updatedAt))
-
-  return json({
-    drafts: drafts.map((d) => {
-      const parsedAttachments = parseStoredAttachments(d.attachments)
-
-      return {
-        id: d.id,
-        toAddr: d.toAddr,
-        cc: d.cc,
-        bcc: d.bcc,
-        subject: d.subject,
-        html: d.html,
-        attachments: parsedAttachments.ok
-          ? summarizeAttachments(parsedAttachments.attachments)
-          : [],
-        attachmentError: parsedAttachments.ok ? null : parsedAttachments.error,
-        inReplyTo: d.inReplyTo,
-        updatedAt: d.updatedAt?.toISOString() ?? new Date().toISOString()
-      }
+  const startedAt = perfNow()
+  const drafts = await db
+    .select({
+      id: mailDraft.id,
+      toAddr: mailDraft.toAddr,
+      subject: mailDraft.subject,
+      updatedAt: mailDraft.updatedAt
     })
+    .from(mailDraft)
+    .orderBy(desc(mailDraft.updatedAt))
+
+  const body = {
+    drafts: drafts.map((d) => ({
+      id: d.id,
+      toAddr: d.toAddr,
+      subject: d.subject,
+      updatedAt: d.updatedAt?.toISOString() ?? new Date().toISOString()
+    }))
+  }
+
+  perfLog('api.drafts.GET', {
+    rows: body.drafts.length,
+    payloadBytes: payloadBytes(body),
+    ms: perfMs(startedAt)
   })
+
+  return json(body)
 }
 
 export const POST: RequestHandler = async ({ request }) => {

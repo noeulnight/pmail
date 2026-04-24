@@ -1,5 +1,6 @@
 <script lang="ts">
   import favicon from '$lib/assets/favicon.svg'
+  import { dev } from '$app/environment'
   import { page } from '$app/state'
   import { onMount } from 'svelte'
   import {
@@ -19,7 +20,6 @@
   import { pathToSlug } from '$lib/mailbox'
   import Composer from '$lib/components/Composer.svelte'
   import { openCompose, openDraft, type DraftRow } from '$lib/composer.svelte'
-  import type { ComposerAttachmentSummary } from '$lib/mail-attachments'
   import { goto } from '$app/navigation'
   import { keyboard } from '$lib/keyboard.svelte'
 
@@ -39,17 +39,29 @@
   type DraftListRow = {
     id: number
     toAddr: string
-    cc: string
-    bcc: string
     subject: string
-    html: string
-    attachments: ComposerAttachmentSummary[]
-    attachmentError: string | null
-    inReplyTo: string | null
     updatedAt: string
   }
 
   let { data, children }: Props = $props()
+
+  const perfPrefix = '[perf-client]'
+  const shellInitAt = typeof performance !== 'undefined' ? performance.now() : 0
+
+  function now() {
+    return typeof performance !== 'undefined' ? performance.now() : Date.now()
+  }
+
+  function logPerf(message: string, details?: Record<string, unknown>) {
+    if (!dev) return
+
+    if (details) {
+      console.log(perfPrefix, message, details)
+      return
+    }
+
+    console.log(perfPrefix, message)
+  }
 
   const mailbox = $derived(page.params.mailbox ?? null)
 
@@ -85,7 +97,6 @@
 
   let sidebarWidth = $state(readStorage('mail:sidebarWidth', 260))
   let resizing = $state(false)
-  let ready = $state(false)
   let sync = $state<SyncStatus | null>(null)
   let refreshing = $state(false)
   let drafts = $state<DraftListRow[]>([])
@@ -100,16 +111,24 @@
     return `${Math.floor(diff / 86400)}d ago`
   }
 
-  async function fetchSyncStatus() {
+  async function fetchSyncStatus(reason = 'unknown') {
+    const startedAt = now()
     try {
       const res = await fetch('/api/sync-status')
       if (res.ok) sync = await res.json()
     } catch {
       // ignore
+    } finally {
+      logPerf('fetchSyncStatus', {
+        reason,
+        mailbox,
+        ms: Math.round(now() - startedAt)
+      })
     }
   }
 
-  async function fetchDrafts() {
+  async function fetchDrafts(reason = 'unknown') {
+    const startedAt = now()
     try {
       const res = await fetch('/api/drafts')
       if (res.ok) {
@@ -119,6 +138,12 @@
       }
     } catch {
       // ignore
+    } finally {
+      logPerf('fetchDrafts', {
+        reason,
+        rows: drafts.length,
+        ms: Math.round(now() - startedAt)
+      })
     }
   }
 
@@ -138,7 +163,8 @@
     }
   }
 
-  async function fetchUnreadCount() {
+  async function fetchUnreadCount(reason = 'unknown') {
+    const startedAt = now()
     try {
       const res = await fetch('/api/unread-count')
       if (res.ok) {
@@ -148,6 +174,12 @@
       }
     } catch {
       // ignore
+    } finally {
+      logPerf('fetchUnreadCount', {
+        reason,
+        unreadCount,
+        ms: Math.round(now() - startedAt)
+      })
     }
   }
 
@@ -196,7 +228,7 @@
   async function handleRefresh() {
     if (refreshing) return
     refreshing = true
-    await fetchSyncStatus()
+    await fetchSyncStatus('manual-refresh')
     await new Promise((r) => setTimeout(r, 600))
     refreshing = false
   }
@@ -234,6 +266,7 @@
   })
 
   async function registerPush() {
+    const startedAt = now()
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
     try {
       const res = await fetch('/api/push/vapid-public-key')
@@ -261,19 +294,31 @@
       })
     } catch {
       // push is optional
+    } finally {
+      logPerf('registerPush', { ms: Math.round(now() - startedAt) })
     }
   }
 
   onMount(() => {
-    ready = true
-    void fetchSyncStatus()
-    void fetchDrafts()
-    void fetchUnreadCount()
+    logPerf('shell hydrated', { mailbox, ms: Math.round(now() - shellInitAt) })
+    logPerf('mount background fetch kick-off', { mailbox })
+    void fetchSyncStatus('mount')
+    void fetchDrafts('mount')
+    void fetchUnreadCount('mount')
     void registerPush()
 
-    const syncInterval = setInterval(fetchSyncStatus, 5000)
-    const draftsInterval = setInterval(fetchDrafts, 30_000)
-    const unreadInterval = setInterval(fetchUnreadCount, 30_000)
+    const syncInterval = setInterval(() => {
+      logPerf('interval refresh', { task: 'fetchSyncStatus', everyMs: 5000 })
+      void fetchSyncStatus('interval')
+    }, 5000)
+    const draftsInterval = setInterval(() => {
+      logPerf('interval refresh', { task: 'fetchDrafts', everyMs: 30_000 })
+      void fetchDrafts('interval')
+    }, 30_000)
+    const unreadInterval = setInterval(() => {
+      logPerf('interval refresh', { task: 'fetchUnreadCount', everyMs: 30_000 })
+      void fetchUnreadCount('interval')
+    }, 30_000)
 
     return () => {
       clearInterval(syncInterval)
@@ -324,7 +369,6 @@
   class="flex h-screen overflow-hidden bg-[#0d0d10] text-zinc-100"
   class:cursor-col-resize={resizing}
   class:select-none={resizing}
-  style="opacity: {ready ? 1 : 0}"
 >
   <aside
     style="width: {sidebarWidth}px; min-width: {sidebarWidth}px"

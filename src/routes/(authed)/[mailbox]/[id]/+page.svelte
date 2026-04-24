@@ -17,7 +17,7 @@
     ChevronLeft,
     ChevronRight
   } from 'lucide-svelte'
-  import { goto, invalidateAll } from '$app/navigation'
+  import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { page } from '$app/state'
   import { trackAppLoading } from '$lib/loading.svelte'
@@ -99,7 +99,6 @@
         })
       )
       if (res.ok) {
-        await trackAppLoading(() => invalidateAll())
         await goto(resolve(`/${page.params.mailbox}`))
       }
     } finally {

@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { goto, invalidateAll } from '$app/navigation'
+  import { dev } from '$app/environment'
+  import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { trackAppLoading } from '$lib/loading.svelte'
   import { pathToSlug } from '$lib/mailbox'
   import { setSimplifiedModeContext } from '$lib/simplified-mode-context'
   import { page } from '$app/state'
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { SvelteSet, SvelteURLSearchParams } from 'svelte/reactivity'
   import {
     RefreshCw,
@@ -37,12 +38,12 @@
 
   type Message = {
     id: number
+    messageId?: string
     uid: number
     subject: string | null
     from: string | null
     to: string | null
     preview: string | null
-    textContent: string | null
     flags: string[]
     receivedAt: string | null
     mailbox?: string
@@ -61,9 +62,6 @@
   type Props = {
     data: {
       sync: SyncData
-      messages: Message[]
-      hasMore: boolean
-      pageSize: number
       imapMailboxes: ImapMailbox[]
       simplifiedView: boolean
     }
@@ -72,11 +70,54 @@
 
   let { data, children }: Props = $props()
 
+  const perfPrefix = '[perf-client]'
+
+  function now() {
+    return typeof performance !== 'undefined' ? performance.now() : Date.now()
+  }
+
+  function logPerf(message: string, details?: Record<string, unknown>) {
+    if (!dev) return
+
+    if (details) {
+      console.log(perfPrefix, message, details)
+      return
+    }
+
+    console.log(perfPrefix, message)
+  }
+
   const sync = $derived(data.sync)
-  const pageSize = $derived(data.pageSize)
   const mailbox = $derived(page.params.mailbox ?? 'inbox')
   const simplifiedViewEnabled = $derived(data.simplifiedView)
   const isMailboxRoot = $derived(!page.params.id && !page.params.threadId)
+
+  function readRouteListSeed() {
+    if (page.params.id || page.params.threadId) return null
+
+    const seed = page.data as {
+      messages?: Message[]
+      hasMore?: boolean
+      pageSize?: number
+    }
+
+    if (!Array.isArray(seed.messages)) return null
+    if (typeof seed.hasMore !== 'boolean') return null
+    if (typeof seed.pageSize !== 'number') return null
+
+    return {
+      messages: seed.messages,
+      hasMore: seed.hasMore,
+      pageSize: seed.pageSize
+    }
+  }
+
+  const routeListSeed = $derived.by(() => {
+    if (!isMailboxRoot) return null
+
+    return readRouteListSeed()
+  })
+  const initialRouteListSeed = readRouteListSeed()
   const selectedMessageId: number | null = $derived.by(() => {
     const id = page.params.id
     if (!id) return null
@@ -91,15 +132,19 @@
     return 15_000
   })
 
-  let messages = $state<Message[]>([])
-  let hasMore = $state(false)
+  let messages = $state<Message[]>(initialRouteListSeed?.messages ?? [])
+  let hasMore = $state(initialRouteListSeed?.hasMore ?? false)
   let isLoadingMore = $state(false)
+  let isRefreshingList = $state(initialRouteListSeed === null)
   let loadMoreError = $state<string | null>(null)
   let searchQuery = $state('')
   let activeFilter = $state<'all' | 'unread'>('all')
   let sentinel = $state<HTMLDivElement | null>(null)
-  let loadedCount = 0
-  let syncRequestId = 0
+  let loadedCount = initialRouteListSeed?.messages.length ?? 0
+  let lastKnownPageSize = initialRouteListSeed?.pageSize ?? 50
+  let listRequestId = 0
+  let listSyncKey = ''
+  let loadedMailbox = ''
 
   let searchResults = $state<Message[]>([])
   let isSearching = $state(false)
@@ -190,9 +235,9 @@
   // Scroll focused row into view when keyboard.focusedIndex changes
   $effect(() => {
     const idx = keyboard.focusedIndex
-    const msg = listMessages[idx]
+    const msg = untrack(() => listMessages[idx])
     if (!msg) return
-    const el = rowEls.get(msg.id)
+    const el = untrack(() => rowEls.get(msg.id))
     el?.scrollIntoView({ block: 'nearest' })
   })
 
@@ -263,11 +308,8 @@
     return subject
   }
 
-  function previewLabel(
-    preview: string | null | undefined,
-    textContent: string | null | undefined
-  ) {
-    return preview || textContent || 'No preview available.'
+  function previewLabel(preview: string | null | undefined) {
+    return preview || 'No preview available.'
   }
 
   function mailboxLabel(mailboxPath: string | undefined) {
@@ -286,48 +328,81 @@
     return `/api/messages?${params}`
   }
 
-  async function syncVisibleMessages() {
-    const targetCount = Math.max(loadedCount, data.messages.length)
+  function currentWindowSize() {
+    return Math.max(loadedCount, messages.length, lastKnownPageSize)
+  }
 
-    if (targetCount <= data.messages.length && !threadedMode) {
-      messages = data.messages
-      hasMore = data.hasMore
-      loadedCount = data.messages.length
-      loadMoreError = null
-      return
-    }
+  function applyListSeed(
+    seed: { messages: Message[]; hasMore: boolean; pageSize: number },
+    reason = 'unknown'
+  ) {
+    const startedAt = now()
+    loadedMailbox = mailbox
+    lastKnownPageSize = seed.pageSize
+    isRefreshingList = false
+    messages = seed.messages
+    hasMore = seed.hasMore
+    loadedCount = seed.messages.length
+    loadMoreError = null
+    logPerf('applyListSeed', {
+      reason,
+      mailbox,
+      loadedCount,
+      rows: messages.length,
+      threadedMode: untrack(() => threadedMode),
+      ms: Math.round(now() - startedAt)
+    })
+  }
 
-    const requestId = ++syncRequestId
+  async function refreshVisibleListWindow(reason = 'unknown') {
+    const startedAt = now()
+    const requestMailbox = mailbox
+    const limit = currentWindowSize()
+    const requestId = ++listRequestId
+    isRefreshingList = true
 
     try {
-      const response = await trackAppLoading(() => fetch(messagesUrl(0, targetCount)))
-      if (!response.ok) throw new Error('Failed to refresh loaded messages.')
+      const response = await trackAppLoading(() => fetch(messagesUrl(0, limit)))
+      if (!response.ok) throw new Error('Failed to refresh message list.')
 
       const payload = (await response.json()) as { messages: Message[]; hasMore: boolean }
 
-      if (requestId !== syncRequestId) return
+      if (requestId !== listRequestId) return
 
+      loadedMailbox = requestMailbox
       messages = payload.messages
       hasMore = payload.hasMore
       loadedCount = payload.messages.length
       loadMoreError = null
     } catch {
-      if (requestId !== syncRequestId) return
-
-      messages = data.messages
-      hasMore = data.hasMore
-      loadedCount = data.messages.length
+      if (requestId !== listRequestId) return
+      loadMoreError = 'Failed to refresh message list.'
+    } finally {
+      if (requestId === listRequestId) {
+        isRefreshingList = false
+      }
+      logPerf('refreshVisibleListWindow', {
+        reason,
+        mailbox: requestMailbox,
+        limit,
+        loadedCount,
+        rows: messages.length,
+        threadedMode,
+        ms: Math.round(now() - startedAt)
+      })
     }
   }
 
   async function loadMoreMessages() {
     if (isLoadingMore || !hasMore) return
 
+    const startedAt = now()
+    const offset = messages.length
     isLoadingMore = true
     loadMoreError = null
 
     try {
-      const response = await trackAppLoading(() => fetch(messagesUrl(messages.length, pageSize)))
+      const response = await trackAppLoading(() => fetch(messagesUrl(offset, lastKnownPageSize)))
       if (!response.ok) throw new Error('Failed to load more messages.')
 
       const payload = (await response.json()) as { messages: Message[]; hasMore: boolean }
@@ -338,6 +413,14 @@
     } catch (error) {
       loadMoreError = error instanceof Error ? error.message : 'Failed to load more messages.'
     } finally {
+      logPerf('loadMoreMessages', {
+        mailbox,
+        offset,
+        limit: lastKnownPageSize,
+        loadedCount,
+        rows: messages.length,
+        ms: Math.round(now() - startedAt)
+      })
       isLoadingMore = false
     }
   }
@@ -507,7 +590,7 @@
         })
 
         clearSelection()
-        await invalidateAll()
+        await refreshVisibleListWindow(`bulk-action:${action}`)
       })
     } finally {
       bulkActionPending = false
@@ -515,14 +598,50 @@
   }
 
   $effect(() => {
-    void syncVisibleMessages()
+    const seed = routeListSeed
+    const nextKey = seed
+      ? `root:${mailbox}:${seed.pageSize}:${seed.hasMore ? 1 : 0}:${seed.messages.length}:${seed.messages[0]?.id ?? ''}:${seed.messages[seed.messages.length - 1]?.id ?? ''}`
+      : `detail:${mailbox}`
+
+    if (nextKey === listSyncKey) return
+    listSyncKey = nextKey
+
+    if (seed && !untrack(() => threadedMode)) {
+      applyListSeed(seed, 'route-seed')
+      return
+    }
+
+    if (!seed && loadedMailbox === mailbox && messages.length > 0) {
+      return
+    }
+
+    messages = []
+    hasMore = false
+    loadedCount = 0
+    loadMoreError = null
+
+    if (seed) {
+      lastKnownPageSize = seed.pageSize
+    }
+
+    void refreshVisibleListWindow(seed ? 'route-threaded-reload' : 'detail-hydration-reload')
   })
 
   async function toggleThreadedMode() {
+    const startedAt = now()
     threadedMode = !threadedMode
     messages = []
+    hasMore = false
     loadedCount = 0
-    await syncVisibleMessages()
+    loadMoreError = null
+    await refreshVisibleListWindow('toggle-threaded-reload')
+
+    logPerf('toggleThreadedMode', {
+      mailbox,
+      threadedMode,
+      rows: messages.length,
+      ms: Math.round(now() - startedAt)
+    })
   }
 
   onMount(() => {
@@ -532,7 +651,15 @@
     const intervalMs = refreshIntervalMs
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        void invalidateAll()
+        const startedAt = now()
+        logPerf('visibility interval refreshVisibleListWindow', { mailbox, intervalMs })
+        void refreshVisibleListWindow('visibility-interval').finally(() => {
+          logPerf('visibility interval refreshVisibleListWindow done', {
+            mailbox,
+            intervalMs,
+            ms: Math.round(now() - startedAt)
+          })
+        })
       }
     }, intervalMs)
 
@@ -607,7 +734,7 @@
         body: JSON.stringify({ action: 'archive' })
       })
 
-      await invalidateAll()
+      await refreshVisibleListWindow('archive-message')
     })
   }
 
@@ -619,7 +746,7 @@
         body: JSON.stringify({ action: 'trash' })
       })
 
-      await invalidateAll()
+      await refreshVisibleListWindow('trash-message')
     })
   }
 
@@ -657,10 +784,17 @@
 
   async function handleRefresh() {
     if (refreshing) return
+    const startedAt = now()
     refreshing = true
-    await trackAppLoading(() => invalidateAll())
+    await refreshVisibleListWindow('manual-refresh')
     await new Promise((r) => setTimeout(r, 600))
     refreshing = false
+    logPerf('manual refresh', {
+      mailbox,
+      loadedCount,
+      rows: messages.length,
+      ms: Math.round(now() - startedAt)
+    })
   }
 
   function startResize(e: PointerEvent) {
@@ -857,7 +991,7 @@
                   </div>
 
                   <p class="mt-6 line-clamp-6 text-base leading-7 text-zinc-400">
-                    {previewLabel(message.preview, message.textContent)}
+                    {previewLabel(message.preview)}
                   </p>
 
                   <div class="mt-auto flex flex-wrap items-center justify-between gap-3 pt-6">
@@ -1135,7 +1269,7 @@
                   </div>
 
                   <p class="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">
-                    {previewLabel(message.preview, message.textContent)}
+                    {previewLabel(message.preview)}
                   </p>
                 </button>
               </div>
@@ -1144,6 +1278,17 @@
               {searchResults.length} result{searchResults.length === 1 ? '' : 's'}
             </div>
           {/if}
+        {:else if isRefreshingList && messages.length === 0}
+          <div class="space-y-3 p-4 sm:p-5">
+            {#each Array.from({ length: 6 }) as _, index (`sidebar-skeleton-${index}`)}
+              <div class="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                <div class="h-3 w-28 animate-pulse rounded bg-white/8"></div>
+                <div class="mt-3 h-4 w-3/4 animate-pulse rounded bg-white/10"></div>
+                <div class="mt-3 h-3 w-full animate-pulse rounded bg-white/8"></div>
+                <div class="mt-2 h-3 w-2/3 animate-pulse rounded bg-white/8"></div>
+              </div>
+            {/each}
+          </div>
         {:else}
           {#each visibleMessages as message, index (message.id)}
             <div class="group relative" use:registerRow={{ id: message.id, map: rowEls }}>
@@ -1215,7 +1360,7 @@
                     selectionMode ? 'pl-5' : ''
                   ].join(' ')}
                 >
-                  {previewLabel(message.preview, message.textContent)}
+                  {previewLabel(message.preview)}
                 </p>
               </button>
             </div>

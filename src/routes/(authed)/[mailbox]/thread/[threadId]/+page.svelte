@@ -10,7 +10,7 @@
     Download,
     FileImage
   } from 'lucide-svelte'
-  import { goto, invalidateAll } from '$app/navigation'
+  import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { page } from '$app/state'
   import { trackAppLoading } from '$lib/loading.svelte'
@@ -80,8 +80,6 @@
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ ids, action })
         })
-
-        await invalidateAll()
       })
       await goto(resolve(`/${page.params.mailbox}`))
     } finally {
