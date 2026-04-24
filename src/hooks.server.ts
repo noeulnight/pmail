@@ -55,14 +55,17 @@ const handleBetterAuth: Handle = async ({ event, resolve }) => {
 }
 
 const handleTraffic: Handle = async ({ event, resolve }) => {
-  const start = Date.now()
+  const start = performance.now()
   const { method } = event.request
   const path = event.url.pathname + (event.url.search || '')
 
   const response = await resolve(event)
 
-  const ms = Date.now() - start
-  console.log(`[traffic] ${method} ${path} ${response.status} ${ms}ms`)
+  const ms = Number((performance.now() - start).toFixed(1))
+  const contentLength = response.headers.get('content-length')
+  console.log(
+    `[traffic] ${method} ${path} ${response.status} ${ms}ms${contentLength ? ` size=${contentLength}` : ''}`
+  )
 
   return response
 }
