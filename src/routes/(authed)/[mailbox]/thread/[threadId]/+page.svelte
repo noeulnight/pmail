@@ -19,7 +19,7 @@
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { openReply, openReplyAll } from '$lib/composer.svelte'
-  import { keyboard, setupKeyboardHandler } from '$lib/keyboard.svelte'
+  import { setupKeyboardHandler } from '$lib/keyboard.svelte'
 
   type Message = {
     id: number
@@ -151,27 +151,26 @@
 
   const lastMessage = $derived(messages[messages.length - 1])
 
+  let scrollContainer = $state<HTMLDivElement | undefined>(undefined)
+
   onMount(() => {
     // Expand the latest message by default
     const last = messages[messages.length - 1]
     if (last) expandedIds.add(last.id)
 
-    const prevContext = keyboard.context
-    keyboard.context = 'message'
-
-    const teardown = setupKeyboardHandler({
+    const teardown = setupKeyboardHandler('message', {
       u: () => goto(resolve(`/${page.params.mailbox}`)),
       r: () => lastMessage && openReply(lastMessage),
       a: () => lastMessage && openReplyAll(lastMessage),
       e: () => void performThreadAction('archive'),
       '#': () => void performThreadAction('trash'),
-      Escape: () => goto(resolve(`/${page.params.mailbox}`))
+      Escape: () => goto(resolve(`/${page.params.mailbox}`)),
+      ArrowLeft: () => goto(resolve(`/${page.params.mailbox}`)),
+      ArrowDown: () => scrollContainer?.scrollBy({ top: 60, behavior: 'smooth' }),
+      ArrowUp: () => scrollContainer?.scrollBy({ top: -60, behavior: 'smooth' })
     })
 
-    return () => {
-      keyboard.context = prevContext
-      teardown()
-    }
+    return teardown
   })
 </script>
 
@@ -271,7 +270,7 @@
   </div>
 
   <!-- Thread messages accordion -->
-  <div class="flex-1 overflow-y-auto">
+  <div bind:this={scrollContainer} class="flex-1 overflow-y-auto">
     <div class="space-y-2 p-2 md:space-y-0 md:divide-y md:divide-white/8 md:p-0">
       {#each messages as msg (msg.id)}
         {@const isExpanded = expandedIds.has(msg.id)}

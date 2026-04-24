@@ -647,7 +647,6 @@
   }
 
   onMount(() => {
-    keyboard.context = 'list'
     keyboard.panel = 'list'
 
     const intervalMs = refreshIntervalMs
@@ -665,30 +664,18 @@
       }
     }, intervalMs)
 
-    const teardown = setupKeyboardHandler({
+    const teardown = setupKeyboardHandler('list', {
       j: () => {
-        const next = Math.min(keyboard.focusedIndex + 1, listMessages.length - 1)
-        keyboard.focusedIndex = next
-        const msg = listMessages[next]
-        if (msg) selectMessage(msg)
+        keyboard.focusedIndex = Math.min(keyboard.focusedIndex + 1, listMessages.length - 1)
       },
       ArrowDown: () => {
-        const next = Math.min(keyboard.focusedIndex + 1, listMessages.length - 1)
-        keyboard.focusedIndex = next
-        const msg = listMessages[next]
-        if (msg) selectMessage(msg)
+        keyboard.focusedIndex = Math.min(keyboard.focusedIndex + 1, listMessages.length - 1)
       },
       k: () => {
-        const next = Math.max(keyboard.focusedIndex - 1, 0)
-        keyboard.focusedIndex = next
-        const msg = listMessages[next]
-        if (msg) selectMessage(msg)
+        keyboard.focusedIndex = Math.max(keyboard.focusedIndex - 1, 0)
       },
       ArrowUp: () => {
-        const next = Math.max(keyboard.focusedIndex - 1, 0)
-        keyboard.focusedIndex = next
-        const msg = listMessages[next]
-        if (msg) selectMessage(msg)
+        keyboard.focusedIndex = Math.max(keyboard.focusedIndex - 1, 0)
       },
       Enter: () => {
         const msg = listMessages[keyboard.focusedIndex]

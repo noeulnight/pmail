@@ -24,7 +24,7 @@
   import { getSimplifiedModeContext } from '$lib/simplified-mode-context'
   import { onMount } from 'svelte'
   import { openReply, openReplyAll, openForward } from '$lib/composer.svelte'
-  import { keyboard, setupKeyboardHandler } from '$lib/keyboard.svelte'
+  import { setupKeyboardHandler } from '$lib/keyboard.svelte'
 
   type Message = {
     id: number
@@ -203,6 +203,18 @@
   // Preview lightbox state
   let previewIndex = $state<number | null>(null)
 
+  let scrollContainer = $state<HTMLDivElement | undefined>(undefined)
+
+  function scrollEmail(amount: number) {
+    const iframe = scrollContainer?.querySelector('iframe') as HTMLIFrameElement | null
+    const idoc = iframe?.contentDocument?.documentElement
+    if (idoc && idoc.scrollHeight > idoc.clientHeight) {
+      iframe?.contentWindow?.scrollBy({ top: amount, behavior: 'smooth' })
+      return
+    }
+    scrollContainer?.scrollBy({ top: amount, behavior: 'smooth' })
+  }
+
   const previewableAttachments = $derived(attachments.filter((a) => isPreviewable(a.contentType)))
 
   function openPreview(att: (typeof attachments)[0]) {
@@ -232,23 +244,20 @@
   }
 
   onMount(() => {
-    const prevContext = keyboard.context
-    keyboard.context = 'message'
-
-    const teardown = setupKeyboardHandler({
+    const teardown = setupKeyboardHandler('message', {
       u: () => goto(resolve(`/${page.params.mailbox}`)),
       r: () => openReply(message),
       a: () => openReplyAll(message),
       f: () => openForward(message),
       e: () => void performAction('archive'),
       '#': () => void performAction('trash'),
-      Escape: () => goto(resolve(`/${page.params.mailbox}`))
+      Escape: () => goto(resolve(`/${page.params.mailbox}`)),
+      ArrowLeft: () => goto(resolve(`/${page.params.mailbox}`)),
+      ArrowDown: () => scrollEmail(60),
+      ArrowUp: () => scrollEmail(-60)
     })
 
-    return () => {
-      keyboard.context = prevContext
-      teardown()
-    }
+    return teardown
   })
 </script>
 
@@ -483,7 +492,7 @@
     </div>
   </div>
 
-  <div class="flex flex-1 flex-col overflow-y-auto">
+  <div bind:this={scrollContainer} class="flex min-h-0 flex-1 flex-col overflow-y-auto">
     {#if srcdoc}
       <iframe
         title={`Email body for ${subjectLabel(message.subject)}`}

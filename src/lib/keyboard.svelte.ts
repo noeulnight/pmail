@@ -1,8 +1,7 @@
-export type KeyContext = 'list' | 'message' | 'composer' | 'none'
+export type KeyContext = 'list' | 'message' | 'composer'
 export type KeyPanel = 'mailboxes' | 'list'
 
 export const keyboard = $state({
-  context: 'none' as KeyContext,
   focusedIndex: 0, // focused row in the message list
   panel: 'list' as KeyPanel, // which visual panel has keyboard focus
   focusedMailboxIndex: 0, // focused row in the mailbox sidebar
@@ -13,9 +12,18 @@ export const keyboard = $state({
 type Handler = () => void
 type HandlerMap = Record<string, Handler>
 
-// Stack of handler maps — topmost is active; teardown pops back to previous
-const handlerStack: HandlerMap[] = []
-let handlers: HandlerMap = {}
+// Handlers registered per context. The dispatcher picks the highest-priority
+// context that currently has handlers, so registration order is irrelevant
+// (cold load and SPA navigation differ in which onMount fires first).
+const handlersByContext: Map<KeyContext, HandlerMap> = new Map()
+const CONTEXT_PRIORITY: KeyContext[] = ['composer', 'message', 'list']
+
+function activeContext(): KeyContext | null {
+  for (const ctx of CONTEXT_PRIORITY) {
+    if (handlersByContext.has(ctx)) return ctx
+  }
+  return null
+}
 
 let chordPending = false
 let chordTimer: ReturnType<typeof setTimeout> | null = null
@@ -37,14 +45,22 @@ function handleKeyDown(e: KeyboardEvent) {
   if (e.metaKey || e.ctrlKey || e.altKey) return
   if (isEditableTarget(e.target)) return
 
+  const ctx = activeContext()
+  const handlers = ctx ? (handlersByContext.get(ctx) ?? {}) : {}
+
   // Composer context: only allow Escape
-  if (keyboard.context === 'composer') {
+  if (ctx === 'composer') {
     if (e.key === 'Escape') handlers['Escape']?.()
     return
   }
 
   // ── Panel switching with ArrowLeft / ArrowRight ──────────────────────────
   if (e.key === 'ArrowLeft') {
+    if (handlers['ArrowLeft']) {
+      e.preventDefault()
+      handlers['ArrowLeft']()
+      return
+    }
     if (keyboard.panel === 'list') {
       keyboard.panel = 'mailboxes'
       e.preventDefault()
@@ -55,6 +71,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
   if (e.key === 'ArrowRight') {
     if (keyboard.panel === 'mailboxes') {
+      keyboard.onMailboxSelect?.()
       keyboard.panel = 'list'
       e.preventDefault()
       return
@@ -127,18 +144,21 @@ function ensureListener() {
 }
 
 /**
- * Register keyboard handlers for the current page context.
- * Stacks on top of any previously registered handlers.
- * Returns a teardown function — call it in onMount's return.
- * On teardown the previous handler map is automatically restored.
+ * Register keyboard handlers for a context. The dispatcher routes by
+ * context priority (composer > message > list), so registration order
+ * does not matter. Returns a teardown function.
  */
-export function setupKeyboardHandler(newHandlers: HandlerMap): () => void {
+export function setupKeyboardHandler(
+  context: KeyContext,
+  newHandlers: HandlerMap
+): () => void {
   ensureListener()
-  handlerStack.push(newHandlers)
-  handlers = newHandlers
+  const prev = handlersByContext.get(context)
+  handlersByContext.set(context, newHandlers)
   return () => {
-    const idx = handlerStack.lastIndexOf(newHandlers)
-    if (idx >= 0) handlerStack.splice(idx, 1)
-    handlers = handlerStack[handlerStack.length - 1] ?? {}
+    // Only roll back if our handlers are still the registered ones
+    if (handlersByContext.get(context) !== newHandlers) return
+    if (prev) handlersByContext.set(context, prev)
+    else handlersByContext.delete(context)
   }
 }
