@@ -24,12 +24,12 @@
         <div>
           <h3 class="mb-3 text-xs font-medium text-zinc-400">Navigation</h3>
           <div class="overflow-hidden rounded-xl border border-white/8">
-            {#each [{ keys: ['←', '→'], desc: 'Switch focus between mailbox sidebar, mail list, and back' }, { keys: ['↑', '↓'], desc: 'Move selection up / down in the focused panel' }, { keys: ['j', 'k'], desc: 'Move selection down / up in the mail list' }, { keys: ['Enter'], desc: 'Open focused message' }, { keys: ['u', 'Esc'], desc: 'Go back to mail list from a message' }] as row (row.desc)}
+            {#each [{ keys: ['←', '→'], desc: 'Switch focus between mailbox sidebar, mail list, and back' }, { keys: ['↑', '↓'], desc: 'Move selection up / down in the focused panel' }, { keys: ['j', 'k'], desc: 'Move selection down / up in the mail list' }, { keys: ['Enter'], desc: 'Open focused message' }, { keys: ['u', 'Esc'], desc: 'Go back to mail list from a message' }] as row, rowIndex (rowIndex)}
               <div
                 class="flex items-center gap-4 border-b border-white/6 px-4 py-2.5 last:border-b-0"
               >
                 <div class="flex shrink-0 gap-1.5">
-                  {#each row.keys as k (k)}
+                  {#each row.keys as k, keyIndex (keyIndex)}
                     <kbd
                       class="rounded-md border border-white/15 bg-white/6 px-2 py-0.5 font-mono text-xs text-zinc-300"
                       >{k}</kbd
@@ -46,12 +46,12 @@
         <div>
           <h3 class="mb-3 text-xs font-medium text-zinc-400">Mail list</h3>
           <div class="overflow-hidden rounded-xl border border-white/8">
-            {#each [{ keys: ['x'], desc: 'Toggle selection on the focused message' }, { keys: ['* a'], desc: 'Select all visible messages' }, { keys: ['* n'], desc: 'Clear selection' }, { keys: ['e'], desc: 'Archive focused message (or all selected)' }, { keys: ['#'], desc: 'Move focused message to trash (or all selected)' }, { keys: ['c'], desc: 'Compose a new message' }, { keys: ['Esc'], desc: 'Clear selection' }] as row (row.desc)}
+            {#each [{ keys: ['x'], desc: 'Toggle selection on the focused message' }, { keys: ['* a'], desc: 'Select all visible messages' }, { keys: ['* n'], desc: 'Clear selection' }, { keys: ['e'], desc: 'Archive focused message (or all selected)' }, { keys: ['#'], desc: 'Move focused message to trash (or all selected)' }, { keys: ['c'], desc: 'Compose a new message' }, { keys: ['Esc'], desc: 'Clear selection' }] as row, rowIndex (rowIndex)}
               <div
                 class="flex items-center gap-4 border-b border-white/6 px-4 py-2.5 last:border-b-0"
               >
                 <div class="flex shrink-0 gap-1.5">
-                  {#each row.keys as k (k)}
+                  {#each row.keys as k, keyIndex (keyIndex)}
                     <kbd
                       class="rounded-md border border-white/15 bg-white/6 px-2 py-0.5 font-mono text-xs text-zinc-300"
                       >{k}</kbd
@@ -68,12 +68,12 @@
         <div>
           <h3 class="mb-3 text-xs font-medium text-zinc-400">Reading a message</h3>
           <div class="overflow-hidden rounded-xl border border-white/8">
-            {#each [{ keys: ['r'], desc: 'Reply' }, { keys: ['a'], desc: 'Reply all' }, { keys: ['f'], desc: 'Forward' }, { keys: ['e'], desc: 'Archive' }, { keys: ['#'], desc: 'Move to trash' }, { keys: ['u'], desc: 'Back to list' }] as row (row.desc)}
+            {#each [{ keys: ['r'], desc: 'Reply' }, { keys: ['a'], desc: 'Reply all' }, { keys: ['f'], desc: 'Forward' }, { keys: ['e'], desc: 'Archive' }, { keys: ['#'], desc: 'Move to trash' }, { keys: ['u'], desc: 'Back to list' }] as row, rowIndex (rowIndex)}
               <div
                 class="flex items-center gap-4 border-b border-white/6 px-4 py-2.5 last:border-b-0"
               >
                 <div class="flex shrink-0 gap-1.5">
-                  {#each row.keys as k (k)}
+                  {#each row.keys as k, keyIndex (keyIndex)}
                     <kbd
                       class="rounded-md border border-white/15 bg-white/6 px-2 py-0.5 font-mono text-xs text-zinc-300"
                       >{k}</kbd
@@ -90,12 +90,12 @@
         <div>
           <h3 class="mb-3 text-xs font-medium text-zinc-400">Composer</h3>
           <div class="overflow-hidden rounded-xl border border-white/8">
-            {#each [{ keys: ['Esc'], desc: 'Minimise composer (draft is auto-saved)' }] as row (row.desc)}
+            {#each [{ keys: ['Esc'], desc: 'Minimise composer (draft is auto-saved)' }] as row, rowIndex (rowIndex)}
               <div
                 class="flex items-center gap-4 border-b border-white/6 px-4 py-2.5 last:border-b-0"
               >
                 <div class="flex shrink-0 gap-1.5">
-                  {#each row.keys as k (k)}
+                  {#each row.keys as k, keyIndex (keyIndex)}
                     <kbd
                       class="rounded-md border border-white/15 bg-white/6 px-2 py-0.5 font-mono text-xs text-zinc-300"
                       >{k}</kbd
@@ -112,12 +112,12 @@
         <div>
           <h3 class="mb-3 text-xs font-medium text-zinc-400">Mouse</h3>
           <div class="overflow-hidden rounded-xl border border-white/8">
-            {#each [{ keys: ['Click checkbox'], desc: 'Select a message' }, { keys: ['Shift + click checkbox'], desc: 'Select a range of messages' }] as row (row.desc)}
+            {#each [{ keys: ['Click checkbox'], desc: 'Select a message' }, { keys: ['Shift + click checkbox'], desc: 'Select a range of messages' }] as row, rowIndex (rowIndex)}
               <div
                 class="flex items-center gap-4 border-b border-white/6 px-4 py-2.5 last:border-b-0"
               >
                 <div class="flex shrink-0 gap-1.5">
-                  {#each row.keys as k (k)}
+                  {#each row.keys as k, keyIndex (keyIndex)}
                     <kbd
                       class="rounded-md border border-white/15 bg-white/6 px-2 py-0.5 font-mono text-xs text-zinc-300"
                       >{k}</kbd
