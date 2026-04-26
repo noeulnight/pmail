@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dev } from '$app/environment'
-  import { goto } from '$app/navigation'
+  import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { trackAppLoading } from '$lib/loading.svelte'
   import { pathToSlug } from '$lib/mailbox'
@@ -152,6 +152,7 @@
   let isSearching = $state(false)
   let searchRequestId = 0
   let searchTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingMailboxNavigationScrollTop: number | null = null
 
   // Bulk selection
   let selectedIds = new SvelteSet<number>()
@@ -353,6 +354,11 @@
     })
   }
 
+  function isCurrentMailboxPath(pathname: string) {
+    const prefix = resolve(`/${mailbox}`)
+    return pathname === prefix || pathname.startsWith(`${prefix}/`)
+  }
+
   function applyListSeed(
     seed: { messages: Message[]; hasMore: boolean; pageSize: number },
     reason = 'unknown'
@@ -452,14 +458,19 @@
 
   function selectMessage(message: Message) {
     if (!message.flags.includes('\\Seen')) {
+      const scrollTop = captureListScrollTop()
       messages = messages.map((m) =>
         m.id === message.id ? { ...m, flags: [...m.flags, '\\Seen'] } : m
       )
+      restoreListScrollTop(scrollTop)
     }
     if (threadedMode && message.threadId) {
-      goto(resolve(`/${mailbox}/thread/${encodeURIComponent(message.threadId)}`))
+      goto(resolve(`/${mailbox}/thread/${encodeURIComponent(message.threadId)}`), {
+        noScroll: true,
+        keepFocus: true
+      })
     } else {
-      goto(resolve(`/${mailbox}/${message.id}`))
+      goto(resolve(`/${mailbox}/${message.id}`), { noScroll: true, keepFocus: true })
     }
   }
 
@@ -869,6 +880,26 @@
       if (listViewport === el) listViewport = null
     }
   }
+
+  beforeNavigate((navigation) => {
+    if (!listViewport || navigation.willUnload) return
+
+    const fromPath = navigation.from?.url.pathname
+    const toPath = navigation.to?.url.pathname
+
+    if (!fromPath || !toPath) return
+    if (!isCurrentMailboxPath(fromPath) || !isCurrentMailboxPath(toPath)) return
+
+    pendingMailboxNavigationScrollTop = listViewport.scrollTop
+  })
+
+  afterNavigate(() => {
+    if (pendingMailboxNavigationScrollTop === null) return
+
+    const scrollTop = pendingMailboxNavigationScrollTop
+    pendingMailboxNavigationScrollTop = null
+    restoreListScrollTop(scrollTop)
+  })
 </script>
 
 <svelte:head>

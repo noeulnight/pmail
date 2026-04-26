@@ -65,6 +65,10 @@
   let sharing = $state(false)
   let shareCopied = $state(false)
 
+  function gotoMailbox() {
+    return goto(resolve(`/${page.params.mailbox}`), { noScroll: true, keepFocus: true })
+  }
+
   async function shareMessage() {
     if (sharing) return
     sharing = true
@@ -99,7 +103,7 @@
         })
       )
       if (res.ok) {
-        await goto(resolve(`/${page.params.mailbox}`))
+        await gotoMailbox()
       }
     } finally {
       acting = false
@@ -245,14 +249,14 @@
 
   onMount(() => {
     const teardown = setupKeyboardHandler('message', {
-      u: () => goto(resolve(`/${page.params.mailbox}`)),
+      u: () => gotoMailbox(),
       r: () => openReply(message),
       a: () => openReplyAll(message),
       f: () => openForward(message),
       e: () => void performAction('archive'),
       '#': () => void performAction('trash'),
-      Escape: () => goto(resolve(`/${page.params.mailbox}`)),
-      ArrowLeft: () => goto(resolve(`/${page.params.mailbox}`)),
+      Escape: () => gotoMailbox(),
+      ArrowLeft: () => gotoMailbox(),
       ArrowDown: () => scrollEmail(60),
       ArrowUp: () => scrollEmail(-60)
     })
@@ -271,7 +275,7 @@
       <div class="flex flex-wrap items-center gap-1">
         <button
           type="button"
-          onclick={() => goto(resolve(`/${page.params.mailbox}`))}
+          onclick={() => gotoMailbox()}
           class="inline-flex items-center gap-2 rounded-lg border border-transparent bg-white/3 px-3 py-2 text-sm text-zinc-200 transition hover:bg-white/6 md:hidden"
         >
           <ChevronLeft size={16} />
