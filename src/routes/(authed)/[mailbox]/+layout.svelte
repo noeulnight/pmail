@@ -869,7 +869,7 @@
     const isFocused = focusedIndex === index && !isSearchMode
     const isSelected = selectedMessageId === message.id
     return [
-      'block w-full rounded-2xl bg-white/[0.02] px-4 py-4 text-left transition sm:px-5 md:rounded-none md:bg-transparent md:border-b md:border-white/8',
+      'block w-full rounded-2xl bg-white/2 px-4 py-4 text-left transition sm:px-5 md:rounded-none md:bg-transparent md:border-b md:border-white/8',
       isSelected
         ? 'bg-white/6'
         : isFocused
@@ -1025,7 +1025,7 @@
         </div>
       {:else if simplifiedCards.length === 0}
         <div
-          class="max-w-md rounded-[2rem] border border-white/8 bg-white/[0.03] p-8 text-center shadow-2xl shadow-black/20"
+          class="max-w-md rounded-4xl border border-white/8 bg-white/3 p-8 text-center shadow-2xl shadow-black/20"
         >
           <p class="text-lg font-semibold text-white">
             {isSearchMode ? 'No results' : 'No messages found'}
@@ -1036,11 +1036,11 @@
         </div>
       {:else}
         <div class="flex w-full max-w-4xl flex-col items-center gap-6">
-          <div class="relative h-[27rem] w-full max-w-2xl">
+          <div class="relative h-108 w-full max-w-2xl">
             {#each simplifiedCards.slice(simplifiedCardIndex, simplifiedCardIndex + 3) as message, offset (message.id)}
               <article
                 class={[
-                  'absolute inset-0 overflow-hidden rounded-[2rem] border border-white/10 bg-[#131319] p-6 text-left shadow-2xl shadow-black/30 transition duration-200',
+                  'absolute inset-0 overflow-hidden rounded-4xl border border-white/10 bg-[#131319] p-6 text-left shadow-2xl shadow-black/30 transition duration-200',
                   offset === 0
                     ? 'cursor-grab touch-pan-y active:cursor-grabbing'
                     : 'pointer-events-none'
@@ -1338,7 +1338,7 @@
                   <button
                     type="button"
                     class={[
-                      'block w-full rounded-2xl bg-white/[0.02] py-4 text-left transition md:rounded-none md:border-b md:border-white/8 md:bg-transparent',
+                      'block w-full rounded-2xl bg-white/2 py-4 text-left transition md:rounded-none md:border-b md:border-white/8 md:bg-transparent',
                       selectionMode ? 'pr-4 pl-9 sm:pr-5 sm:pl-10' : 'px-4 sm:px-5',
                       selectedMessageId === message.id ? 'bg-white/6' : 'hover:bg-white/3'
                     ].join(' ')}
@@ -1390,8 +1390,8 @@
           {/if}
         {:else if isRefreshingList && messages.length === 0}
           <div class="space-y-3 p-4 sm:p-5">
-            {#each Array.from({ length: 6 }) as _, index (`sidebar-skeleton-${index}`)}
-              <div class="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+            {#each Array.from({ length: 6 }, (_, index) => index) as index (`sidebar-skeleton-${index}`)}
+              <div class="rounded-2xl border border-white/8 bg-white/3 p-4">
                 <div class="h-3 w-28 animate-pulse rounded bg-white/8"></div>
                 <div class="mt-3 h-4 w-3/4 animate-pulse rounded bg-white/10"></div>
                 <div class="mt-3 h-3 w-full animate-pulse rounded bg-white/8"></div>

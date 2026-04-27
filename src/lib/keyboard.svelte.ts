@@ -15,12 +15,12 @@ type HandlerMap = Record<string, Handler>
 // Handlers registered per context. The dispatcher picks the highest-priority
 // context that currently has handlers, so registration order is irrelevant
 // (cold load and SPA navigation differ in which onMount fires first).
-const handlersByContext: Map<KeyContext, HandlerMap> = new Map()
+const handlersByContext: Partial<Record<KeyContext, HandlerMap>> = {}
 const CONTEXT_PRIORITY: KeyContext[] = ['composer', 'message', 'list']
 
 function activeContext(): KeyContext | null {
   for (const ctx of CONTEXT_PRIORITY) {
-    if (handlersByContext.has(ctx)) return ctx
+    if (handlersByContext[ctx]) return ctx
   }
   return null
 }
@@ -46,7 +46,7 @@ function handleKeyDown(e: KeyboardEvent) {
   if (isEditableTarget(e.target)) return
 
   const ctx = activeContext()
-  const handlers = ctx ? (handlersByContext.get(ctx) ?? {}) : {}
+  const handlers = ctx ? (handlersByContext[ctx] ?? {}) : {}
 
   // Composer context: only allow Escape
   if (ctx === 'composer') {
@@ -148,17 +148,14 @@ function ensureListener() {
  * context priority (composer > message > list), so registration order
  * does not matter. Returns a teardown function.
  */
-export function setupKeyboardHandler(
-  context: KeyContext,
-  newHandlers: HandlerMap
-): () => void {
+export function setupKeyboardHandler(context: KeyContext, newHandlers: HandlerMap): () => void {
   ensureListener()
-  const prev = handlersByContext.get(context)
-  handlersByContext.set(context, newHandlers)
+  const prev = handlersByContext[context]
+  handlersByContext[context] = newHandlers
   return () => {
     // Only roll back if our handlers are still the registered ones
-    if (handlersByContext.get(context) !== newHandlers) return
-    if (prev) handlersByContext.set(context, prev)
-    else handlersByContext.delete(context)
+    if (handlersByContext[context] !== newHandlers) return
+    if (prev) handlersByContext[context] = prev
+    else delete handlersByContext[context]
   }
 }

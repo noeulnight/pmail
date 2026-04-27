@@ -301,7 +301,7 @@
 
         <div
           class={[
-            'rounded-2xl bg-white/[0.02] transition-colors md:rounded-none md:bg-transparent',
+            'rounded-2xl bg-white/2 transition-colors md:rounded-none md:bg-transparent',
             isExpanded ? 'bg-white/4 md:bg-white/2' : 'hover:bg-white/4 md:hover:bg-white/2'
           ].join(' ')}
         >
@@ -353,7 +353,7 @@
           <!-- Expanded content -->
           {#if isExpanded}
             <div class="px-4 pb-4 sm:px-5">
-              <p class="mb-3 text-xs break-words text-zinc-500">
+              <p class="mb-3 text-xs wrap-break-word text-zinc-500">
                 To: {msg.to || '—'}
               </p>
 
