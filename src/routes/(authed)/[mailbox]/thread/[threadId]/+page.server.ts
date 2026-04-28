@@ -16,12 +16,16 @@ function serializeMessage(message: Awaited<ReturnType<typeof getMessagesInThread
     id: message.id,
     uid: message.uid,
     messageId: message.messageId,
+    mailbox: message.mailbox,
     subject: message.subject,
     from: message.from,
     to: message.to,
+    cc: message.cc,
     preview: message.preview,
     textContent: message.textContent,
     htmlContent: message.htmlContent,
+    inReplyTo: message.inReplyTo,
+    references: message.references,
     flags: JSON.parse(message.flags) as string[],
     receivedAt: message.receivedAt?.toISOString() ?? null
   }

@@ -29,12 +29,16 @@
     id: number
     uid: number
     messageId: string
+    mailbox: string
     subject: string | null
     from: string | null
     to: string | null
+    cc: string | null
     preview: string | null
     htmlContent: string | null
     textContent: string | null
+    inReplyTo: string | null
+    references: string | null
     flags: string[]
     receivedAt: string | null
   }
@@ -61,6 +65,7 @@
   let acting = $state(false)
   let sharing = $state(false)
   let shareCopied = $state(false)
+  let metadataOpen = $state(false)
 
   function gotoMailbox() {
     return goto(resolve(`/${page.params.mailbox}`), { noScroll: true, keepFocus: true })
@@ -132,6 +137,12 @@
     return label.split('<')[0]?.trim() || label
   }
 
+  function senderAddress(from: string | null | undefined) {
+    if (!from) return ''
+    const match = from.match(/<([^>]+)>/)
+    return match?.[1]?.trim() ?? ''
+  }
+
   function senderInitials(from: string | null | undefined) {
     const words = senderName(from).split(/\s+/).filter(Boolean).slice(0, 2)
     return words.map((word) => word[0]?.toUpperCase() ?? '').join('') || 'NA'
@@ -140,6 +151,25 @@
   function subjectLabel(subject: string | null | undefined) {
     if (!subject) return '(no subject)'
     return subject
+  }
+
+  function hasValue(value: string | null | undefined) {
+    return Boolean(value && value.trim())
+  }
+
+  function metadataRows(msg: Message) {
+    return [
+      { label: 'From', value: msg.from },
+      { label: 'To', value: msg.to },
+      { label: 'Cc', value: msg.cc },
+      { label: 'Mailbox', value: msg.mailbox },
+      { label: 'Message-ID', value: msg.messageId },
+      { label: 'UID', value: String(msg.uid) },
+      { label: 'Received', value: formatFullDate(msg.receivedAt) },
+      { label: 'In-Reply-To', value: msg.inReplyTo },
+      { label: 'References', value: msg.references },
+      { label: 'Flags', value: msg.flags.join(', ') || '—' }
+    ].filter((row) => hasValue(row.value))
   }
 
   function bodyText(msg: Message) {
@@ -381,6 +411,14 @@
         {/if}
         <button
           type="button"
+          aria-label="View metadata"
+          onclick={() => (metadataOpen = true)}
+          class="rounded-lg border border-transparent bg-white/3 px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/6 hover:text-zinc-100 md:hidden"
+        >
+          Metadata
+        </button>
+        <button
+          type="button"
           aria-label="Reply"
           onclick={() => openReply(message)}
           class="rounded-lg border border-transparent bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200 md:hidden"
@@ -419,6 +457,14 @@
       </div>
 
       <div class="hidden flex-wrap items-center gap-1 md:flex md:justify-end">
+        <button
+          type="button"
+          aria-label="View metadata"
+          onclick={() => (metadataOpen = true)}
+          class="rounded-lg border border-white/8 bg-white/3 px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/6 hover:text-zinc-100"
+        >
+          Metadata
+        </button>
         <div class="group relative">
           <button
             type="button"
@@ -501,17 +547,12 @@
           <h2 class="truncate text-xl font-semibold text-white">
             {subjectLabel(message.subject)}
           </h2>
-          <p class="mt-1 truncate text-sm font-medium text-zinc-200">
-            {senderName(message.from)}
-          </p>
-          <div class="mt-1 flex min-w-0 items-center gap-2 text-xs text-zinc-500 sm:hidden">
-            <span class="shrink-0">{formatFullDate(message.receivedAt)}</span>
-            <span class="h-1 w-1 shrink-0 rounded-full bg-zinc-700"></span>
-            <span class="truncate">Reply-To: {senderLabel(message.from)}</span>
+          <div class="mt-1 flex min-w-0 items-center gap-2">
+            <p class="truncate text-sm font-medium text-zinc-200">{senderName(message.from)}</p>
+            {#if senderAddress(message.from)}
+              <p class="truncate text-sm text-zinc-500">&lt;{senderAddress(message.from)}&gt;</p>
+            {/if}
           </div>
-          <p class="mt-1 hidden text-sm text-zinc-500 sm:block">
-            Reply-To: {senderLabel(message.from)}
-          </p>
         </div>
       </div>
 
@@ -621,6 +662,70 @@
       </div>
     {/if}
   </div>
+
+  {#if metadataOpen}
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="presentation"
+      onclick={(event) => {
+        if (event.target === event.currentTarget) metadataOpen = false
+      }}
+    >
+      <div
+        class="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl"
+      >
+        <div class="flex items-center justify-between border-b border-white/8 px-5 py-4">
+          <div>
+            <h3 class="text-base font-semibold text-white">Message Metadata</h3>
+            <p class="mt-1 text-sm text-zinc-500">{subjectLabel(message.subject)}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close metadata"
+            onclick={() => (metadataOpen = false)}
+            class="rounded-lg border border-white/8 bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div class="overflow-y-auto p-5">
+          <dl class="space-y-3">
+            {#each metadataRows(message) as row (row.label)}
+              <div
+                class="grid gap-1 border-b border-white/6 pb-3 last:border-b-0 last:pb-0 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-4"
+              >
+                <dt class="text-xs font-medium tracking-wide text-zinc-500 uppercase">
+                  {row.label}
+                </dt>
+                <dd class="min-w-0 text-sm break-all text-zinc-200">{row.value}</dd>
+              </div>
+            {/each}
+          </dl>
+
+          <div class="mt-6 space-y-4">
+            <details class="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+              <summary class="cursor-pointer text-sm font-medium text-zinc-200">
+                HTML Source
+              </summary>
+              <pre
+                class="mt-3 max-h-80 overflow-auto rounded-xl border border-white/6 bg-black/20 p-3 text-xs leading-6 whitespace-pre-wrap text-zinc-300">{message.htmlContent ||
+                  'No HTML content available.'}</pre>
+            </details>
+
+            <details class="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+              <summary class="cursor-pointer text-sm font-medium text-zinc-200">
+                Text Source
+              </summary>
+              <pre
+                class="mt-3 max-h-80 overflow-auto rounded-xl border border-white/6 bg-black/20 p-3 text-xs leading-6 whitespace-pre-wrap text-zinc-300">{message.textContent ||
+                  'No text content available.'}</pre>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <!-- Preview lightbox -->

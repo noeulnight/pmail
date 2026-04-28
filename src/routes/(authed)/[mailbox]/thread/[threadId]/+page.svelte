@@ -9,7 +9,8 @@
     ChevronLeft,
     Paperclip,
     Download,
-    FileImage
+    FileImage,
+    X
   } from 'lucide-svelte'
   import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
@@ -24,12 +25,16 @@
     id: number
     uid: number
     messageId: string
+    mailbox: string
     subject: string | null
     from: string | null
     to: string | null
+    cc: string | null
     preview: string | null
     htmlContent: string | null
     textContent: string | null
+    inReplyTo: string | null
+    references: string | null
     flags: string[]
     receivedAt: string | null
   }
@@ -61,6 +66,7 @@
   // Latest message expanded by default
   let expandedIds = new SvelteSet<number>()
   let acting = $state(false)
+  let metadataMessage = $state<Message | null>(null)
 
   function gotoMailbox() {
     return goto(resolve(`/${page.params.mailbox}`), { noScroll: true, keepFocus: true })
@@ -107,6 +113,12 @@
     return from.split('<')[0]?.trim() || from
   }
 
+  function senderAddress(from: string | null | undefined) {
+    if (!from) return ''
+    const match = from.match(/<([^>]+)>/)
+    return match?.[1]?.trim() ?? ''
+  }
+
   function senderInitials(from: string | null | undefined) {
     const words = senderName(from).split(/\s+/).filter(Boolean).slice(0, 2)
     return words.map((word) => word[0]?.toUpperCase() ?? '').join('') || 'NA'
@@ -124,6 +136,23 @@
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  function hasValue(value: string | null | undefined) {
+    return Boolean(value && value.trim())
+  }
+
+  function detailRows(msg: Message) {
+    return [
+      { label: 'From', value: msg.from },
+      { label: 'To', value: msg.to },
+      { label: 'Cc', value: msg.cc },
+      { label: 'Mailbox', value: msg.mailbox },
+      { label: 'Message-ID', value: msg.messageId },
+      { label: 'UID', value: String(msg.uid) },
+      { label: 'In-Reply-To', value: msg.inReplyTo },
+      { label: 'References', value: msg.references }
+    ].filter((row) => hasValue(row.value))
   }
 
   const SCROLLBAR_STYLE = `<style>
@@ -314,6 +343,11 @@
                 >
                   {senderName(msg.from)}
                 </span>
+                {#if senderAddress(msg.from)}
+                  <span class="truncate text-xs text-zinc-500"
+                    >&lt;{senderAddress(msg.from)}&gt;</span
+                  >
+                {/if}
                 {#if isUnread(msg.flags)}
                   <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400"></span>
                 {/if}
@@ -341,9 +375,15 @@
           <!-- Expanded content -->
           {#if isExpanded}
             <div class="px-4 pb-4 sm:px-5">
-              <p class="mb-3 text-xs wrap-break-word text-zinc-500">
-                To: {msg.to || '—'}
-              </p>
+              <div class="mb-4 flex justify-end">
+                <button
+                  type="button"
+                  onclick={() => (metadataMessage = msg)}
+                  class="rounded-lg border border-white/8 bg-white/3 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-white/6 hover:text-zinc-100"
+                >
+                  Metadata
+                </button>
+              </div>
 
               {#if srcdoc}
                 <iframe
@@ -426,3 +466,61 @@
     </div>
   </div>
 </div>
+
+{#if metadataMessage}
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+    role="presentation"
+    onclick={(event) => {
+      if (event.target === event.currentTarget) metadataMessage = null
+    }}
+  >
+    <div
+      class="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl"
+    >
+      <div class="flex items-center justify-between border-b border-white/8 px-5 py-4">
+        <div>
+          <h3 class="text-base font-semibold text-white">Message Metadata</h3>
+          <p class="mt-1 text-sm text-zinc-500">{metadataMessage.subject ?? '(no subject)'}</p>
+        </div>
+        <button
+          type="button"
+          aria-label="Close metadata"
+          onclick={() => (metadataMessage = null)}
+          class="rounded-lg border border-white/8 bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div class="overflow-y-auto p-5">
+        <dl class="space-y-3">
+          {#each [...detailRows(metadataMessage), { label: 'Received', value: formatFullDate(metadataMessage.receivedAt) }, { label: 'Flags', value: metadataMessage.flags.join(', ') || '—' }] as row (row.label)}
+            <div
+              class="grid gap-1 border-b border-white/6 pb-3 last:border-b-0 last:pb-0 sm:grid-cols-[108px_minmax(0,1fr)] sm:gap-4"
+            >
+              <dt class="text-xs font-medium tracking-wide text-zinc-500 uppercase">{row.label}</dt>
+              <dd class="min-w-0 text-sm break-all text-zinc-200">{row.value}</dd>
+            </div>
+          {/each}
+        </dl>
+
+        <div class="mt-6 space-y-4">
+          <details class="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+            <summary class="cursor-pointer text-sm font-medium text-zinc-200">HTML Source</summary>
+            <pre
+              class="mt-3 max-h-80 overflow-auto rounded-xl border border-white/6 bg-black/20 p-3 text-xs leading-6 whitespace-pre-wrap text-zinc-300">{metadataMessage.htmlContent ||
+                'No HTML content available.'}</pre>
+          </details>
+
+          <details class="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+            <summary class="cursor-pointer text-sm font-medium text-zinc-200">Text Source</summary>
+            <pre
+              class="mt-3 max-h-80 overflow-auto rounded-xl border border-white/6 bg-black/20 p-3 text-xs leading-6 whitespace-pre-wrap text-zinc-300">{metadataMessage.textContent ||
+                'No text content available.'}</pre>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
