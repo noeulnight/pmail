@@ -1068,57 +1068,64 @@
 {#if showSimplifiedMailboxView}
   <section class="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[#0d0d10]">
     <div class="p-4 sm:p-5 md:border-b md:border-white/8">
-      <div class="flex justify-end overflow-x-auto">
-        <div class="inline-flex min-w-max items-center gap-1.5 sm:gap-2">
-          <button
-            type="button"
-            onclick={() => (mobileSearchOpen = !mobileSearchOpen)}
-            class={[
-              'rounded-lg border border-transparent bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200 md:hidden',
-              mobileSearchOpen || searchQuery.trim().length > 0 ? 'text-zinc-200' : ''
-            ]}
-            aria-label={mobileSearchOpen || searchQuery.trim().length > 0
-              ? 'Hide search'
-              : 'Show search'}
-            aria-pressed={mobileSearchOpen || searchQuery.trim().length > 0}
-          >
-            <Search size={15} />
-          </button>
-          <button
-            type="button"
-            onclick={handleRefresh}
-            class={[
-              'transition',
-              refreshing ? 'animate-spin text-zinc-400' : 'text-zinc-600 hover:text-zinc-400'
-            ]}
-            title="Refresh"
-          >
-            <RefreshCw size={15} />
-          </button>
-          <div
-            class="shrink-0 rounded-xl border border-transparent bg-white/3 p-1 text-xs md:border-white/8 md:text-sm"
-          >
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <p class="truncate text-sm font-semibold text-white sm:text-base">{folderDisplayName}</p>
+          <p class="mt-1 text-xs text-zinc-500 sm:text-sm">{totalCount} messages</p>
+        </div>
+
+        <div class="flex justify-end overflow-x-auto">
+          <div class="inline-flex min-w-max items-center gap-1.5 sm:gap-2">
             <button
               type="button"
+              onclick={() => (mobileSearchOpen = !mobileSearchOpen)}
               class={[
-                'rounded-lg px-2.5 py-1.5 transition sm:px-3',
-                activeFilter === 'all' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                'rounded-lg border border-transparent bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200 md:hidden',
+                mobileSearchOpen || searchQuery.trim().length > 0 ? 'text-zinc-200' : ''
               ]}
-              onclick={() => (activeFilter = 'all')}
+              aria-label={mobileSearchOpen || searchQuery.trim().length > 0
+                ? 'Hide search'
+                : 'Show search'}
+              aria-pressed={mobileSearchOpen || searchQuery.trim().length > 0}
             >
-              <span class="sm:hidden">All</span>
-              <span class="hidden sm:inline">All mail</span>
+              <Search size={15} />
             </button>
             <button
               type="button"
+              onclick={handleRefresh}
               class={[
-                'rounded-lg px-2.5 py-1.5 transition sm:px-3',
-                activeFilter === 'unread' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                'transition',
+                refreshing ? 'animate-spin text-zinc-400' : 'text-zinc-600 hover:text-zinc-400'
               ]}
-              onclick={() => (activeFilter = 'unread')}
+              title="Refresh"
             >
-              Unread
+              <RefreshCw size={15} />
             </button>
+            <div
+              class="shrink-0 rounded-xl border border-transparent bg-white/3 p-1 text-xs md:border-white/8 md:text-sm"
+            >
+              <button
+                type="button"
+                class={[
+                  'rounded-lg px-2.5 py-1.5 transition sm:px-3',
+                  activeFilter === 'all' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                ]}
+                onclick={() => (activeFilter = 'all')}
+              >
+                <span class="sm:hidden">All</span>
+                <span class="hidden sm:inline">All mail</span>
+              </button>
+              <button
+                type="button"
+                class={[
+                  'rounded-lg px-2.5 py-1.5 transition sm:px-3',
+                  activeFilter === 'unread' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                ]}
+                onclick={() => (activeFilter = 'unread')}
+              >
+                Unread
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1159,8 +1166,8 @@
           </p>
         </div>
       {:else}
-        <div class="flex w-full max-w-5xl flex-col items-center gap-6">
-          <div class="relative h-108 w-full max-w-2xl lg:h-[34rem] lg:max-w-3xl">
+        <div class="flex w-full max-w-lg flex-col items-center gap-6">
+          <div class="relative h-108 w-full max-w-xl lg:h-[34rem] lg:max-w-2xl">
             {#each simplifiedCards.slice(simplifiedCardIndex, simplifiedCardIndex + 3) as message, offset (message.id)}
               <article
                 class={[
@@ -1277,57 +1284,64 @@
       aria-label="Message list"
     >
       <div class="p-4 sm:p-5 md:border-b md:border-white/8">
-        <div class="flex justify-end overflow-x-auto">
-          <div class="inline-flex min-w-max items-center gap-1.5 sm:gap-2">
-            <button
-              type="button"
-              onclick={() => (mobileSearchOpen = !mobileSearchOpen)}
-              class={[
-                'rounded-lg border border-transparent bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200 md:hidden',
-                mobileSearchOpen || searchQuery.trim().length > 0 ? 'text-zinc-200' : ''
-              ]}
-              aria-label={mobileSearchOpen || searchQuery.trim().length > 0
-                ? 'Hide search'
-                : 'Show search'}
-              aria-pressed={mobileSearchOpen || searchQuery.trim().length > 0}
-            >
-              <Search size={15} />
-            </button>
-            <button
-              type="button"
-              onclick={handleRefresh}
-              class={[
-                'transition',
-                refreshing ? 'animate-spin text-zinc-400' : 'text-zinc-600 hover:text-zinc-400'
-              ]}
-              title="Refresh"
-            >
-              <RefreshCw size={15} />
-            </button>
-            <div
-              class="shrink-0 rounded-xl border border-transparent bg-white/3 p-1 text-xs md:border-white/8 md:text-sm"
-            >
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold text-white sm:text-base">{folderDisplayName}</p>
+            <p class="mt-1 text-xs text-zinc-500 sm:text-sm">{totalCount} messages</p>
+          </div>
+
+          <div class="flex justify-end overflow-x-auto">
+            <div class="inline-flex min-w-max items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
+                onclick={() => (mobileSearchOpen = !mobileSearchOpen)}
                 class={[
-                  'rounded-lg px-2.5 py-1.5 transition sm:px-3',
-                  activeFilter === 'all' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                  'rounded-lg border border-transparent bg-white/3 p-2 text-zinc-400 transition hover:bg-white/6 hover:text-zinc-200 md:hidden',
+                  mobileSearchOpen || searchQuery.trim().length > 0 ? 'text-zinc-200' : ''
                 ]}
-                onclick={() => (activeFilter = 'all')}
+                aria-label={mobileSearchOpen || searchQuery.trim().length > 0
+                  ? 'Hide search'
+                  : 'Show search'}
+                aria-pressed={mobileSearchOpen || searchQuery.trim().length > 0}
               >
-                <span class="sm:hidden">All</span>
-                <span class="hidden sm:inline">All mail</span>
+                <Search size={15} />
               </button>
               <button
                 type="button"
+                onclick={handleRefresh}
                 class={[
-                  'rounded-lg px-2.5 py-1.5 transition sm:px-3',
-                  activeFilter === 'unread' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                  'transition',
+                  refreshing ? 'animate-spin text-zinc-400' : 'text-zinc-600 hover:text-zinc-400'
                 ]}
-                onclick={() => (activeFilter = 'unread')}
+                title="Refresh"
               >
-                Unread
+                <RefreshCw size={15} />
               </button>
+              <div
+                class="shrink-0 rounded-xl border border-transparent bg-white/3 p-1 text-xs md:border-white/8 md:text-sm"
+              >
+                <button
+                  type="button"
+                  class={[
+                    'rounded-lg px-2.5 py-1.5 transition sm:px-3',
+                    activeFilter === 'all' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                  ]}
+                  onclick={() => (activeFilter = 'all')}
+                >
+                  <span class="sm:hidden">All</span>
+                  <span class="hidden sm:inline">All mail</span>
+                </button>
+                <button
+                  type="button"
+                  class={[
+                    'rounded-lg px-2.5 py-1.5 transition sm:px-3',
+                    activeFilter === 'unread' ? 'bg-white/8 text-white' : 'text-zinc-400'
+                  ]}
+                  onclick={() => (activeFilter = 'unread')}
+                >
+                  Unread
+                </button>
+              </div>
             </div>
           </div>
         </div>
