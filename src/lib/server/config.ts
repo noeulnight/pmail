@@ -2,6 +2,7 @@
  * Mail configuration loader.
  * DB values (mail_config table, id=1) take priority over environment variables.
  */
+import { env } from '$env/dynamic/private'
 import { db } from './db'
 import { mailConfig } from './db/schema'
 import { eq } from 'drizzle-orm'
@@ -32,7 +33,6 @@ export type OidcConfig = {
 }
 
 export type MailConfigRow = typeof mailConfig.$inferSelect
-const env = process.env
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value == null || value === '') return fallback
