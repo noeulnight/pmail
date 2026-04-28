@@ -59,6 +59,7 @@ export type MailListRow = {
   subject: string
   from: string
   to: string
+  cc: string
   preview: string
   receivedAt: Date | null
   threadId: string | null
@@ -68,6 +69,8 @@ export type MailListRow = {
 export type MailRow = MailListRow & {
   textContent: string
   htmlContent: string | null
+  inReplyTo: string | null
+  references: string | null
 }
 
 export type ThreadRow = MailListRow & { threadCount: number }
@@ -1146,6 +1149,7 @@ const listSelect = {
   subject: mailMessage.subject,
   from: mailMessage.from,
   to: mailMessage.to,
+  cc: mailMessage.cc,
   preview: mailMessage.preview,
   receivedAt: mailMessage.receivedAt,
   threadId: mailMessage.threadKey
@@ -1154,7 +1158,9 @@ const listSelect = {
 const detailSelect = {
   ...listSelect,
   textContent: mailMessage.textContent,
-  htmlContent: mailMessage.htmlContent
+  htmlContent: mailMessage.htmlContent,
+  inReplyTo: mailMessage.inReplyTo,
+  references: mailMessage.references
 }
 
 async function refreshThreadSummary(mailbox: string, threadKey: string) {
@@ -1288,6 +1294,7 @@ export async function listStoredThreads(
         subject: mailMessage.subject,
         from: mailMessage.from,
         to: mailMessage.to,
+        cc: mailMessage.cc,
         preview: mailMessage.preview,
         receivedAt: mailThreadSummary.latestReceivedAt,
         threadId: mailThreadSummary.threadKey,
