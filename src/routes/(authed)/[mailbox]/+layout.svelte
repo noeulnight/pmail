@@ -1269,7 +1269,7 @@
     </div>
 
     <div
-      class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 select-none sm:p-6"
+      class="flex min-h-0 flex-1 items-center justify-center overflow-x-hidden overflow-y-auto p-4 select-none sm:p-6"
     >
       {#if isSearchMode && isSearching}
         <div class="text-center">
